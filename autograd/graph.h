@@ -2,12 +2,14 @@
     #define GRAPH_HEADER 0
     #include "../general.h"
     #include "../activation_functions/activation_function.h"
+    #include "../loss/loss.h"
 
     typedef enum op{
         OP_SUM,
         OP_MATMUL,
         OP_RELU,
         OP_SOFTMAX,
+        OP_CROSS_ENTROPY,
         OP_NULL
     } op;
 
@@ -34,14 +36,15 @@
                    af_array gradiente, op operazione,
                    node_type tipo, node* left, node* right);
 
-    node* add_op(node*,node*,op);
+    node* add_op(node*,node*,af_array,op);
     void add_child(node*,node*);
     node* create_val(af_array);
     node* add_matmul(node*,node*,op);
     node* add_sum(node*,node*,op);
-    node* add_relu(node*,op);
+    node* add_activation(node*,float (*fun)(float),op);
     node* add_softmax(node*,op);
     af_array matrix_map(af_array,float (*fun)(float));
+    node* add_loss(node*,af_array,af_array (*fun)(af_array,af_array),op);
     
     
 

@@ -6,7 +6,7 @@ LDFLAGS = -L"$(AF_DIR)/lib"					#serve per far trovare i file c al linker
 LDLIBS = -lafcpu							#serve per far trovare la singola libreria(in c ci sono i .lib)
 
 TARGET = frame_work.exe
-OBJ = main.o graph.o activation_function.o
+OBJ = main.o graph.o activation_function.o loss.o
 
 #$@  nome dell’obiettivo da generare.
 #$<  nome della prima dipendenza.
@@ -22,13 +22,16 @@ rebuild:
 $(TARGET): $(OBJ)
 	$(CC) $(LDFLAGS) $^ -o $@ $(LDLIBS)
 
-main.o: main.c autograd/graph.h general.h
+main.o: main.c autograd/graph.h loss/loss.h general.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
-graph.o: autograd/graph.c autograd/graph.h general.h
+graph.o: autograd/graph.c autograd/graph.h loss/loss.h general.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 activation_function.o: activation_functions\activation_function.c activation_functions\activation_function.h general.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+loss.o: loss/loss.c loss/loss.h general.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 cleanAll:

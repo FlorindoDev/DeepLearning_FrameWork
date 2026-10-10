@@ -12,8 +12,7 @@ node* alloc_node(node_type type)
 
 void init_node(node* nodo, af_array valore,
                af_array gradiente, op operazione,
-               node_type tipo, node* left, node* right)
-{
+               node_type tipo, node* left, node* right){
     nodo->valore = valore;
     nodo->gradiente = gradiente;
     nodo->operazione = operazione;
@@ -75,12 +74,12 @@ node* add_sum(node* left_node,node* right_node,op op){
     return node;
 }
 
-node* add_relu(node* input_node,op op){
+node* add_activation(node* input_node, float (*fun)(float),op op){
 
     af_array A = 0;
     af_copy_array(&A, input_node->valore);
 
-    A = matrix_map(A,relu);
+    A = matrix_map(A,fun);
 
     node* node = alloc_node(TYPE_OP);
     init_node(node,A,NULL,op,TYPE_OP,NULL,NULL);
@@ -101,9 +100,22 @@ node* add_softmax(node* input_node,op op){
     return node;
 }
 
+node* add_loss(node* input_node,af_array target,af_array (*fun)(af_array,af_array),op op){
+
+    af_array A = 0;
+    af_copy_array(&A, input_node->valore);
+
+    A = fun(A,target);
+
+    node* node = alloc_node(TYPE_OP);
+    init_node(node,A,NULL,op,TYPE_OP,NULL,NULL);
+    add_child(input_node,node);
+    return node;
+}
 
 
-node* add_op(node* left_matrix,node* right_matrix, op op){
+
+node* add_op(node* left_matrix,node* right_matrix, af_array target,op op){
 
     switch (op){
     case OP_MATMUL:
@@ -111,9 +123,11 @@ node* add_op(node* left_matrix,node* right_matrix, op op){
     case OP_SUM:
         return add_sum(left_matrix,right_matrix,op);
     case OP_RELU:
-        return add_relu(left_matrix,op);
+        return add_activation(left_matrix,relu,op);
     case OP_SOFTMAX:
         return add_softmax(left_matrix,op);
+    case OP_CROSS_ENTROPY:
+        return add_loss(left_matrix,target,cross_entropy,op);
     default:
         return NULL;
     }

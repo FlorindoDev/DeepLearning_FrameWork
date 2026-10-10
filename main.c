@@ -10,8 +10,9 @@ int main(void)
     int figli[MAX_NODI][2];
     int numero_nodi = 0, costruito = 0, stato = EXIT_FAILURE;
     af_err err = AF_SUCCESS;
+    af_array target = 0;
 
-    // Dati per colonne: A = [1 -2 3; -4 5 -6], B = [1 0; 0 1; 1 1], C = [1 0; 0 -2].
+    // Dati per colonne: A, B e C sono gli ingressi del grafo.
     float dati[NUM_VAL][6] = {
         {1, -4, -2, 5, 3, -6}, {1, 0, 1, 0, 1, 1}, {1, 0, 0, -2}
     };
@@ -28,22 +29,29 @@ int main(void)
         }
     }
 
+    // Il target e' un parametro esterno della loss, non un nodo del grafo.
+    float dati_target[] = {0, 1, 0, 1};
+    err = af_create_array(&target, dati_target, 2, dimensioni[2], f32);
+    if (err != AF_SUCCESS) goto visita;
+
     // Solo la libreria costruisce il grafo. Questi puntatori sono temporanei:
     // non vengono conservati per la visita o per il disegno.
     {
-        node* primo = add_op(val[0], val[1], OP_MATMUL);
+        node* primo = add_op(val[0], val[1], NULL, OP_MATMUL);
         if (primo == NULL) goto visita;
-        node* attivato = add_op(primo, NULL, OP_RELU);
+        node* attivato = add_op(primo, NULL, NULL, OP_RELU);
         if (attivato == NULL) goto visita;
-        node* secondo = add_op(attivato, val[2], OP_MATMUL);
+        node* secondo = add_op(attivato, val[2], NULL, OP_MATMUL);
         if (secondo == NULL) goto visita;
-        node* terzo = add_op(attivato, secondo, OP_MATMUL);
+        node* terzo = add_op(attivato, secondo, NULL, OP_MATMUL);
         if (terzo == NULL) goto visita;
-        node* somma = add_op(terzo, val[2], OP_SUM);
+        node* somma = add_op(terzo, val[2], NULL, OP_SUM);
         if (somma == NULL) goto visita;
-        node* finale = add_op(somma, NULL, OP_RELU);
+        node* finale = add_op(somma, NULL, NULL, OP_RELU);
         if (finale == NULL) goto visita;
-        if (add_op(finale, NULL, OP_SOFTMAX) == NULL) goto visita;
+        node* probabilita = add_op(finale, NULL, NULL, OP_SOFTMAX);
+        if (probabilita == NULL) goto visita;
+        if (add_op(probabilita, NULL, target, OP_CROSS_ENTROPY) == NULL) goto visita;
         costruito = 1;
     }
 
@@ -126,6 +134,7 @@ visita:
                                nodi[i]->operazione == OP_MATMUL ? "MATMUL" :
                                nodi[i]->operazione == OP_RELU ? "RELU" :
                                nodi[i]->operazione == OP_SOFTMAX ? "SOFTMAX" :
+                               nodi[i]->operazione == OP_CROSS_ENTROPY ? "CROSS_ENTROPY" :
                                nodi[i]->operazione == OP_SUM ? "SUM" : "OP",
                                (long long)dims[0], (long long)dims[1]);
         if (lunghezze[i] < 0 || lunghezze[i] >= (int)sizeof etichette[i] ||
@@ -203,33 +212,35 @@ visita:
         puts(disegno[y]);
     }
 
-    // ReLU e softmax sono unarie: hanno un solo collegamento entrante.
-    int uscite = 0, matmul = 0, somme = 0, relu = 0, softmax = 0;
-    int collegamenti_ok = numero_nodi == 10;
+    // ReLU, softmax e loss hanno un solo collegamento entrante nel grafo.
+    int uscite = 0, matmul = 0, somme = 0, relu = 0, softmax = 0, loss = 0;
+    int collegamenti_ok = numero_nodi == 11;
     for (int i = 0; i < numero_nodi; ++i) {
         if (nodi[i]->tipo == TYPE_VAL) {
             if (i >= NUM_VAL || entranti[i] != 0) collegamenti_ok = 0;
         } else {
             int operandi = (nodi[i]->operazione == OP_RELU ||
-                            nodi[i]->operazione == OP_SOFTMAX) ? 1 : 2;
+                            nodi[i]->operazione == OP_SOFTMAX ||
+                            nodi[i]->operazione == OP_CROSS_ENTROPY) ? 1 : 2;
             if (entranti[i] != operandi) collegamenti_ok = 0;
             if (nodi[i]->operazione == OP_MATMUL) ++matmul;
             else if (nodi[i]->operazione == OP_SUM) ++somme;
             else if (nodi[i]->operazione == OP_RELU) ++relu;
             else if (nodi[i]->operazione == OP_SOFTMAX) ++softmax;
+            else if (nodi[i]->operazione == OP_CROSS_ENTROPY) ++loss;
             else collegamenti_ok = 0;
         }
         if (figli[i][0] < 0 && figli[i][1] < 0) ++uscite;
     }
     if (!collegamenti_ok || uscite != 1 || matmul != 3 || somme != 1 ||
-        relu != 2 || softmax != 1) {
+        relu != 2 || softmax != 1 || loss != 1) {
         fprintf(stderr, "Test fallito: collegamenti diversi da quelli attesi.\n");
         goto cleanup;
     }
-    printf("\nTest collegamenti superato: 3 ingressi, 3 matmul, 1 somma, 2 ReLU, 1 softmax, un'uscita.\n");
+    printf("\nTest collegamenti superato: 3 ingressi, 3 matmul, 1 somma, 2 ReLU, 1 softmax, 1 cross-entropy, un'uscita.\n");
 
     // Risultati calcolati a mano, in ordine di visita e in formato per colonne.
-    const float attesi[10][6] = {
+    const double attesi[11][6] = {
         {1, -4, -2, 5, 3, -6}, // N0: A
         {1, 0, 1, 0, 1, 1},    // N1: B
         {1, 0, 0, -2},         // N2: C
@@ -239,11 +250,12 @@ visita:
         {4, 0, 1, 0},          // N6: ReLU(A * B)
         {16, 0, -8, 0},        // N7: N6 * N4
         {17, 0, 0, 0},         // N8: ReLU(N5)
-        {1.0f, 4.1399377e-8f, 0.5f, 0.5f} // N9: softmax(N8), per colonna
+        {1.0, 4.1399377e-8, 0.5, 0.5}, // N9: softmax(N8), per colonna
+        {(17.0 + log(2.0)) / 2.0} // N10: cross-entropy(N9, target)
     };
-    const op operazioni_attese[10] = {
+    const op operazioni_attese[11] = {
         OP_NULL, OP_NULL, OP_NULL, OP_MATMUL, OP_MATMUL,
-        OP_SUM, OP_RELU, OP_MATMUL, OP_RELU, OP_SOFTMAX
+        OP_SUM, OP_RELU, OP_MATMUL, OP_RELU, OP_SOFTMAX, OP_CROSS_ENTROPY
     };
 
     printf("\nValori di ogni nodo:\n");
@@ -251,27 +263,35 @@ visita:
         dim_t dims[4];
         err = af_get_dims(&dims[0], &dims[1], &dims[2], &dims[3], nodi[i]->valore);
         if (err != AF_SUCCESS) goto cleanup;
-        dim_t righe_attese = i < NUM_VAL ? dimensioni[i][0] : 2;
-        dim_t colonne_attese = i < NUM_VAL ? dimensioni[i][1] : 2;
+        int nodo_loss = nodi[i]->operazione == OP_CROSS_ENTROPY;
+        dim_t righe_attese = i < NUM_VAL ? dimensioni[i][0] : nodo_loss ? 1 : 2;
+        dim_t colonne_attese = i < NUM_VAL ? dimensioni[i][1] : nodo_loss ? 1 : 2;
         assert(dims[0] == righe_attese && dims[1] == colonne_attese);
         assert(dims[2] == 1 && dims[3] == 1);
         assert(nodi[i]->operazione == operazioni_attese[i]);
         if (dims[0] != righe_attese || dims[1] != colonne_attese ||
             dims[2] != 1 || dims[3] != 1) goto cleanup;
 
-        float ottenuti[6];
-        err = af_get_data_ptr(ottenuti, nodi[i]->valore);
+        // La loss e' f64; convertiamo la lettura per verificare tutti i nodi.
+        double ottenuti[6];
+        af_array lettura = 0;
+        err = af_cast(&lettura, nodi[i]->valore, f64);
+        if (err != AF_SUCCESS) goto cleanup;
+        err = af_get_data_ptr(ottenuti, lettura);
+        af_release_array(lettura);
         if (err != AF_SUCCESS) goto cleanup;
         printf("\n%s\n", etichette[i]);
         err = af_print_array(nodi[i]->valore);
         if (err != AF_SUCCESS) goto cleanup;
         fflush(stdout);
 
-        // Gli interi sono esatti; per softmax tolleriamo l'arrotondamento in f32.
+        // Gli interi sono esatti; softmax e loss ammettono errori di arrotondamento.
         for (dim_t j = 0; j < righe_attese * colonne_attese; ++j) {
-            int corretto = nodi[i]->operazione == OP_SOFTMAX
-                         ? fabsf(ottenuti[j] - attesi[i][j]) <=
-                           1e-12f + 1e-6f * fabsf(attesi[i][j])
+            int corretto = nodo_loss
+                         ? fabs(ottenuti[j] - attesi[i][j]) <= 1e-6
+                         : nodi[i]->operazione == OP_SOFTMAX
+                         ? fabs(ottenuti[j] - attesi[i][j]) <=
+                           1e-12 + 1e-6 * fabs(attesi[i][j])
                          : ottenuti[j] == attesi[i][j];
             if (!corretto) {
                 fprintf(stderr, "N%d, elemento %lld: atteso %g, ottenuto %g.\n",
@@ -287,6 +307,7 @@ visita:
 cleanup:
     if (err != AF_SUCCESS)
         fprintf(stderr, "Errore ArrayFire: %d\n", (int)err);
+    if (target) af_release_array(target);
     // Ogni nodo trovato viene rilasciato una volta, anche se e' condiviso.
     for (int i = 0; i < numero_nodi; ++i) {
         if (nodi[i]->gradiente) af_release_array(nodi[i]->gradiente);
