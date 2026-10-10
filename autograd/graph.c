@@ -92,7 +92,7 @@ node* add_softmax(node* input_node,op op){
     af_array A = 0;
     af_copy_array(&A, input_node->valore);
 
-    A = softmax(A,0);
+    A = softmax(A,1);
 
     node* node = alloc_node(TYPE_OP);
     init_node(node,A,NULL,op,TYPE_OP,NULL,NULL);
