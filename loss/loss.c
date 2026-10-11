@@ -1,5 +1,10 @@
 #include "loss.h"
 
+float cross_entropy_derivative(float predizione, float target)
+{
+    return -target / predizione;
+}
+
 af_array cross_entropy(af_array predizioni, af_array target)
 {
     af_array y = 0, t = 0, minimo = 0, massimo = 0, meno_uno = 0;

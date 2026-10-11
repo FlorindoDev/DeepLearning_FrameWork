@@ -5,6 +5,41 @@ float relu(float val){
 
 }
 
+float relu_derivative(float val){
+    return val > 0 ? 1.0f : 0.0f;
+}
+
+af_array softmax_derivative(af_array predizioni){
+    if (predizioni == NULL) return NULL;
+
+    dim_t dims[4];
+    af_dtype tipo;
+    af_get_dims(&dims[0], &dims[1], &dims[2], &dims[3], predizioni);
+    af_get_type(&tipo, predizioni); 
+
+
+
+    af_array identita = 0, delta = 0, predizioni_j = 0;
+    af_array differenze = 0, risultato = 0;
+    dim_t forma_identita[] = {dims[1], dims[1]};
+    dim_t forma_delta[] = {1, dims[1], dims[1]};
+
+    // risultato[n, i, j] = predizioni[n, i] * (delta[i, j] - predizioni[n, j]).
+    af_identity(&identita, 2, forma_identita, tipo);
+    af_moddims(&delta, identita, 3, forma_delta);
+    af_reorder(&predizioni_j, predizioni, 0, 2, 1, 3);
+    af_sub(&differenze, delta, predizioni_j, true);
+    af_mul(&risultato, predizioni, differenze, true);
+    
+    af_release_array(identita);
+    af_release_array(delta);
+    af_release_array(predizioni_j);
+    af_release_array(differenze);
+
+    return risultato;
+}
+
+
 af_array softmax(af_array input, int dim){
 
     af_array massimi = 0, centrata = 0, esponenziali = 0;
