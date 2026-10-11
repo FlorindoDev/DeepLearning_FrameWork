@@ -56,6 +56,8 @@
     af_array matrix_map(af_array,float (*fun)(float));
     node* add_loss(node*,af_array,af_array (*fun)(af_array,af_array),op);
     int is_node_in_array(array_node*, node*);
+    void find_leaf(array_node* nodes, array_node* leaf);
+    void find_leaf_helper(node* node,  array_node* leaf);
     
     
 
