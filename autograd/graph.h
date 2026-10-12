@@ -15,6 +15,9 @@
 
     typedef enum node_type{
         TYPE_OP,
+        TYPE_WEIGHT,
+        TYPE_BIAS,
+        TYPE_INPUT,
         TYPE_VAL
     } node_type;
 
@@ -48,7 +51,7 @@
 
     node* add_op(node*,node*,af_array,op);
     void add_child(node*,node*);
-    node* create_val(af_array);
+    node* create_val(af_array,node_type);
     node* add_matmul(node*,node*,op);
     node* add_sum(node*,node*,op);
     node* add_activation(node*,float (*fun)(float),op);
@@ -58,6 +61,7 @@
     int is_node_in_array(array_node*, node*);
     void find_leaf(array_node* nodes, array_node* leaf);
     void find_leaf_helper(node* node,  array_node* leaf);
+    int is_value_node(node* node);
     
     
 

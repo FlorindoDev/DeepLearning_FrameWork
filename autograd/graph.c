@@ -19,28 +19,37 @@ void init_node(node* nodo, af_array valore,
     nodo->tipo = tipo;
     nodo->left = left;
     nodo->right = right;
-    nodo->left = father_left;
-    nodo->right = father_right;
+    nodo->father_left = father_left;
+    nodo->father_right = father_right;
 }
 
 void add_child(node* father,node* child){
     if(father->left == NULL){
         father->left = child;
-        child->father_left = father;
-        return;
     }else if(father->right == NULL){
         father->right = child;
-        child->father_right = father;
+    }else{
+        printf("[!] il padre non ha spazio per il figlio");
         return;
     }
 
-    printf("[!] il padre non ha spazio per il figlio");
+    if(child->father_left == NULL){
+        child->father_left = father;
+    }else{
+        child->father_right = father;
+    }
 }
 
-node* create_val(af_array val){
-    node* node = alloc_node(TYPE_VAL);
-    init_node(node,val,NULL,OP_NULL,TYPE_VAL,NULL,NULL,NULL,NULL);
-    return node;
+node* create_val(af_array val,node_type type){
+    if(type > 0 && type <= 4){
+        node* node = alloc_node(type);
+        init_node(node,val,NULL,OP_NULL,type,NULL,NULL,NULL,NULL);
+        return node;
+    }else{
+        node* node = alloc_node(type);
+        init_node(node,val,NULL,OP_NULL,TYPE_VAL,NULL,NULL,NULL,NULL);
+        return node;
+    }
 }
 
 
@@ -217,6 +226,11 @@ void find_leaf_helper(node* node, array_node* leaf){
     return;
 
 }
+
+int is_value_node(node* node){
+    return node->tipo == TYPE_VAL;
+}
+
 
 
 

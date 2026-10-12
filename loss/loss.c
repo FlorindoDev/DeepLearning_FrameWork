@@ -1,8 +1,27 @@
 #include "loss.h"
 
-float cross_entropy_derivative(float predizione, float target)
-{
-    return -target / predizione;
+af_array cross_entropy_derivative(af_array predizioni, af_array target){
+    if (predizioni == NULL || target == NULL) return NULL;
+
+    dim_t dims[4];
+    af_get_dims(&dims[0], &dims[1], &dims[2], &dims[3], predizioni);
+
+    af_array y = 0, t = 0, rapporti = 0, fattore_media = 0, risultato = 0;
+    dim_t scalare[] = {1};
+
+    af_cast(&y, predizioni, f64); 
+    af_cast(&t, target, f64); 
+    af_div(&rapporti, t, y, false); 
+    // La loss fa la media lungo la dimensione 0 (campioni).
+    af_constant(&fattore_media, -1.0 / (double)dims[0], 1, scalare, f64);
+    af_mul(&risultato, rapporti, fattore_media, true);
+
+    af_release_array(y);
+    af_release_array(t);
+    af_release_array(rapporti);
+    af_release_array(fattore_media);
+
+    return risultato;
 }
 
 af_array cross_entropy(af_array predizioni, af_array target)

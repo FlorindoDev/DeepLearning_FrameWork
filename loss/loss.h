@@ -5,9 +5,10 @@
 
     af_array cross_entropy(af_array predizioni, af_array target);
 
-    // d(-target * log(predizione))/d predizione, con predizione > 0.
-    // Singolo termine: non include il clamp o la media sul batch della loss.
-    float cross_entropy_derivative(float predizione, float target);
+    // -target / (N * predizioni) elemento per elemento, con predizioni > 0.
+    // Input della stessa forma; N = campioni nella dimensione 0, risultato f64 senza clamp.
+    // Gli input restano validi; il chiamante rilascia il risultato. NULL su errore.
+    af_array cross_entropy_derivative(af_array predizioni, af_array target);
 
 
 #endif

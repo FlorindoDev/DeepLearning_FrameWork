@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <math.h>
 
-enum { NUM_VAL = 3, NUM_MISTI = 8, MAX_NODI = 16, LARGHEZZA = 95, PASSO = 8 };
+enum { MAX_NODI = 12, LARGHEZZA = 200, PASSO = 4 };
 
 // Disegna i collegamenti gia' presenti: non costruisce nodi e non cerca foglie.
 static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
@@ -13,13 +13,16 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
     int rimanenti[MAX_NODI], ordine[MAX_NODI];
     af_err err = AF_SUCCESS;
     for (int i = 0; i < numero_nodi; ++i) entranti[i] = 0;
-    int livello[MAX_NODI] = {0}, ordinati = 0;
+    int livello[MAX_NODI] = {0}, ordinati = 0, larghezza = 95;
     for (int i = 0; i < numero_nodi; ++i)
         for (int j = 0; j < 2; ++j)
             if (figli[i][j] >= 0) ++entranti[figli[i][j]];
     for (int i = 0; i < numero_nodi; ++i) {
         rimanenti[i] = entranti[i];
-        if (entranti[i] == 0) ordine[ordinati++] = i;
+        if (entranti[i] == 0) {
+            ordine[ordinati++] = i;
+            if (18 + i * 24 + 20 > larghezza) larghezza = LARGHEZZA;
+        }
     }
     for (int p = 0; p < ordinati; ++p) {
         int i = ordine[p];
@@ -56,6 +59,9 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
         if (err != AF_SUCCESS) return err;
         lunghezze[i] = snprintf(etichette[i], sizeof etichette[i],
                                "[N%d %s %lldx%lld]", i,
+                               nodi[i]->tipo == TYPE_INPUT ? "INPUT" :
+                               nodi[i]->tipo == TYPE_WEIGHT ? "WEIGHT" :
+                               nodi[i]->tipo == TYPE_BIAS ? "BIAS" :
                                nodi[i]->tipo == TYPE_VAL ? "VAL" :
                                nodi[i]->operazione == OP_MATMUL ? "MATMUL" :
                                nodi[i]->operazione == OP_RELU ? "RELU" :
@@ -74,7 +80,7 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
         }
         if (lunghezze[i] < 0 || lunghezze[i] >= (int)sizeof etichette[i] ||
             colonne[i] - lunghezze[i] / 2 < 0 ||
-            colonne[i] + lunghezze[i] - lunghezze[i] / 2 > LARGHEZZA) {
+            colonne[i] + lunghezze[i] - lunghezze[i] / 2 > larghezza) {
             fprintf(stderr, "Grafo troppo largo per questo test.\n");
             return AF_ERR_SIZE;
         }
@@ -83,8 +89,8 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
     // La griglia ASCII contiene solo i nodi e gli archi trovati dalla visita.
     char disegno[MAX_NODI * PASSO][LARGHEZZA + 1];
     for (int y = 0; y <= ultima_riga; ++y) {
-        for (int x = 0; x < LARGHEZZA; ++x) disegno[y][x] = ' ';
-        disegno[y][LARGHEZZA] = '\0';
+        for (int x = 0; x < larghezza; ++x) disegno[y][x] = ' ';
+        disegno[y][larghezza] = '\0';
     }
     int deviazioni = 0;
     for (int i = 0; i < numero_nodi; ++i) {
@@ -103,9 +109,9 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
                 numero_punti = 4;
             } else {
                 int corsia = colonne[i] < colonne[dest]
-                           ? 2 + deviazioni * 3 : LARGHEZZA - 3 - deviazioni * 3;
+                           ? 2 + deviazioni * 3 : larghezza - 3 - deviazioni * 3;
                 ++deviazioni;
-                if (corsia < 0 || corsia >= LARGHEZZA) return AF_ERR_SIZE;
+                if (corsia < 0 || corsia >= larghezza) return AF_ERR_SIZE;
                 punti[1][0] = colonne[i];    punti[1][1] = righe[i] + 2;
                 punti[2][0] = corsia;        punti[2][1] = righe[i] + 2;
                 punti[3][0] = corsia;        punti[3][1] = righe[dest] - 2;
@@ -139,9 +145,12 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
             disegno[righe[i]][inizio + c] = etichette[i][c];
     }
 
-    printf("\nGrafo %d (N0, N1, N2 sono gli ingressi):\n\n", numero_grafo);
+    printf("\nGrafo %d (entry:", numero_grafo);
+    for (int i = 0; i < numero_nodi; ++i)
+        if (entranti[i] == 0) printf(" N%d", i);
+    printf("):\n\n");
     for (int y = 0; y <= ultima_riga; ++y) {
-        int fine = LARGHEZZA;
+        int fine = larghezza;
         while (fine > 0 && disegno[y][fine - 1] == ' ') --fine;
         disegno[y][fine] = '\0';
         puts(disegno[y]);
@@ -150,347 +159,219 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
     return AF_SUCCESS;
 }
 
-int main(void)
+// Legge soltanto il risultato della libreria: non calcola o assegna gradienti.
+static int verifica_valori(const char* nome, af_array gradiente,
+                             dim_t righe, dim_t colonne, const double* atteso)
 {
-    node* val[NUM_VAL] = {NULL};
-    node* nodi[MAX_NODI] = {NULL};
-    array_node nodes = {.node = val, .size = NUM_VAL, .length = NUM_VAL};
-    array_node leaf = {.size = MAX_NODI, .length = 0};
-    node* foglia_attesa = NULL;
-    node* val_misti[NUM_VAL] = {NULL};
-    node* nodi_misti[NUM_MISTI] = {NULL};
-    array_node nodes_misti = {.node = val_misti, .size = NUM_VAL, .length = NUM_VAL};
-    array_node leaf_miste = {.size = NUM_MISTI, .length = 0};
-    int figli[MAX_NODI][2];
-    int numero_nodi = 0, costruito = 0, stato = EXIT_FAILURE;
-    af_err err = AF_SUCCESS;
+    if (gradiente == NULL) {
+        fprintf(stderr, "%s: array assente.\n", nome);
+        return 0;
+    }
+
+    dim_t dims[4];
+    af_err err = af_get_dims(&dims[0], &dims[1], &dims[2], &dims[3], gradiente);
+    if (err != AF_SUCCESS || dims[0] != righe || dims[1] != colonne ||
+        dims[2] != 1 || dims[3] != 1) {
+        fprintf(stderr, "%s: dimensioni errate, attese %lldx%lld.\n",
+                nome, (long long)righe, (long long)colonne);
+        return 0;
+    }
+
+    af_array convertito = 0;
+    double valori[4];
+    assert(righe * colonne <= 4);
+    err = af_cast(&convertito, gradiente, f64);
+    if (err == AF_SUCCESS) err = af_get_data_ptr(valori, convertito);
+    if (convertito) af_release_array(convertito);
+    if (err != AF_SUCCESS) {
+        fprintf(stderr, "%s: lettura dei valori fallita (%d).\n", nome, (int)err);
+        return 0;
+    }
+
+    int corretto = 1;
+    for (dim_t i = 0; i < righe * colonne; ++i) {
+        int coincide = isfinite(valori[i]) && fabs(valori[i] - atteso[i]) < 1e-5;
+        printf("%s[%lld]: ottenuto %.9f, atteso %.9f [%s]\n",
+               nome, (long long)i, valori[i], atteso[i], coincide ? "OK" : "ERRORE");
+        if (!coincide) corretto = 0;
+    }
+    return corretto;
+}
+
+static af_err test_rete_due_livelli(void)
+{
+    enum { X, W1, B1, W2, B2, M1, Z1, H, M2, Z2, P, LOSS, NUM_NODI };
+    node* nodi[NUM_NODI] = {NULL};
+    node* foglie[NUM_NODI] = {NULL};
+    array_node ingressi = {.node = nodi, .size = 5, .length = 5};
+    array_node leaf = {.node = foglie, .size = NUM_NODI, .length = 0};
     af_array target = 0;
+    af_err err = AF_SUCCESS;
+    int gradienti_corretti = 1;
 
-    // A contiene un campione per riga; B e C sono gli altri ingressi del grafo.
-    // I buffer sono in ordine per colonne, come richiesto da ArrayFire.
-    float dati[NUM_VAL][6] = {
-        {1, -4, -2, 5, 3, -6}, {1, 0, 1, 0, 1, 1}, {1, 0, 0, -2}
+    // Due campioni, due layer con bias: ReLU nel primo, softmax nel secondo.
+    // H = ReLU(W1 * X + B1); P = softmax(H * W2 + B2).
+    // Buffer per colonne. Il primo matmul segue la convenzione TYPE_INPUT.
+    const float dati[5][4] = {
+        {2, 1, 1, 2}, {1, -1, 1, 1}, {0.5f, -0.5f},
+        {0.5f, 1, -0.5f, -1}, {0.75f, 0.25f}
     };
-    dim_t dimensioni[NUM_VAL][2] = {{2, 3}, {3, 2}, {2, 2}};
-
-    for (int i = 0; i < NUM_VAL; ++i) {
-        af_array ingresso = 0;
-        err = af_create_array(&ingresso, dati[i], 2, dimensioni[i], f32);
-        if (err != AF_SUCCESS) goto visita;
-        val[i] = create_val(ingresso);
-        if (val[i] == NULL) {
-            af_release_array(ingresso);
-            goto visita;
+    const dim_t forme[5][2] = {{2, 2}, {2, 2}, {1, 2}, {2, 2}, {1, 2}};
+    const node_type tipi[5] = {TYPE_INPUT, TYPE_WEIGHT, TYPE_BIAS, TYPE_WEIGHT, TYPE_BIAS};
+    const float dati_target[4] = {0, 1, 1, 0};
+    for (int i = 0; i < ingressi.length; ++i) {
+        af_array valore = 0;
+        err = af_create_array(&valore, dati[i], 2, forme[i], f32);
+        if (err != AF_SUCCESS) goto cleanup;
+        nodi[i] = create_val(valore, tipi[i]);
+        if (nodi[i] == NULL) {
+            af_release_array(valore);
+            err = AF_ERR_NO_MEM;
+            goto cleanup;
         }
     }
+    err = af_create_array(&target, dati_target, 2, forme[W2], f32);
+    if (err != AF_SUCCESS) goto cleanup;
 
-    // Target one-hot per riga: entrambi i campioni appartengono alla seconda classe.
-    // Matrice [[0, 1], [0, 1]], memorizzata per colonne; parametro esterno della loss.
-    float dati_target[] = {0, 0, 1, 1};
-    err = af_create_array(&target, dati_target, 2, dimensioni[2], f32);
-    if (err != AF_SUCCESS) goto visita;
+    puts("Forward livello 1: W1 * X + B1 -> ReLU");
+    nodi[M1] = add_op(nodi[W1], nodi[X], NULL, OP_MATMUL);
+    if (nodi[M1] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[Z1] = add_op(nodi[M1], nodi[B1], NULL, OP_SUM);
+    if (nodi[Z1] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[H] = add_op(nodi[Z1], NULL, NULL, OP_RELU);
+    if (nodi[H] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    puts("Forward livello 2: H * W2 + B2 -> softmax");
+    nodi[M2] = add_op(nodi[H], nodi[W2], NULL, OP_MATMUL);
+    if (nodi[M2] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[Z2] = add_op(nodi[M2], nodi[B2], NULL, OP_SUM);
+    if (nodi[Z2] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    puts("Forward uscita: softmax -> cross-entropy");
+    nodi[P] = add_op(nodi[Z2], NULL, NULL, OP_SOFTMAX);
+    if (nodi[P] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[LOSS] = add_op(nodi[P], NULL, target, OP_CROSS_ENTROPY);
+    if (nodi[LOSS] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
 
-    // Solo la libreria costruisce il grafo. La foglia attesa viene conservata
-    // per gli assert; la ricerca riceve esclusivamente le entry val.
-    {
-        node* primo = add_op(val[0], val[1], NULL, OP_MATMUL);
-        if (primo == NULL) goto visita;
-        node* attivato = add_op(primo, NULL, NULL, OP_RELU);
-        if (attivato == NULL) goto visita;
-        node* secondo = add_op(attivato, val[2], NULL, OP_MATMUL);
-        if (secondo == NULL) goto visita;
-        node* terzo = add_op(attivato, secondo, NULL, OP_MATMUL);
-        if (terzo == NULL) goto visita;
-        node* somma = add_op(terzo, val[2], NULL, OP_SUM);
-        if (somma == NULL) goto visita;
-        node* finale = add_op(somma, NULL, NULL, OP_RELU);
-        if (finale == NULL) goto visita;
-        node* probabilita = add_op(finale, NULL, NULL, OP_SOFTMAX);
-        if (probabilita == NULL) goto visita;
-        foglia_attesa = add_op(probabilita, NULL, target, OP_CROSS_ENTROPY);
-        if (foglia_attesa == NULL) goto visita;
-        costruito = 1;
-    }
-
-visita:
-    // Visita in ampiezza: l'unico punto di partenza e' il vettore val.
-    for (int i = 0; i < MAX_NODI; ++i)
-        figli[i][0] = figli[i][1] = -1;
-    for (int i = 0; i < NUM_VAL; ++i)
-        if (val[i] != NULL) nodi[numero_nodi++] = val[i];
-
-    for (int i = 0; i < numero_nodi; ++i) {
+    // Il disegno usa i collegamenti effettivi creati da add_op.
+    int figli[NUM_NODI][2], entranti[NUM_NODI];
+    char etichette[NUM_NODI][40];
+    for (int i = 0; i < NUM_NODI; ++i) {
         node* collegati[] = {nodi[i]->left, nodi[i]->right};
         for (int j = 0; j < 2; ++j) {
+            figli[i][j] = -1;
             if (collegati[j] == NULL) continue;
             int indice = 0;
-            while (indice < numero_nodi && nodi[indice] != collegati[j]) ++indice;
-            // Salviamo una sola volta anche i nodi condivisi.
-            if (indice == numero_nodi) {
-                if (numero_nodi == MAX_NODI) {
-                    fprintf(stderr, "Troppi nodi per questo test.\n");
-                    goto cleanup;
-                }
-                nodi[numero_nodi++] = collegati[j];
-            }
+            while (indice < NUM_NODI && nodi[indice] != collegati[j]) ++indice;
+            assert(indice < NUM_NODI);
+            if (indice == NUM_NODI) { err = AF_ERR_SIZE; goto cleanup; }
             figli[i][j] = indice;
         }
     }
-    if (!costruito) {
-        fprintf(stderr, "Costruzione del grafo non completata.\n");
+    err = stampa_grafo(1, nodi, NUM_NODI, figli, entranti, etichette);
+    if (err != AF_SUCCESS) goto cleanup;
+
+    // Risultati indipendenti, calcolati a mano:
+    // M1 = [[3,3],[-1,1]], Z1 = [[3.5,2.5],[-0.5,0.5]].
+    // H = [[3.5,2.5],[0,0.5]], Z2 = [[5,-4],[1.25,-0.25]].
+    // p = sigmoid(9), q = sigmoid(1.5); P = [[p,1-p],[q,1-q]].
+    // Loss media: (log(1+exp(9)) + log(1+exp(-1.5))) / 2.
+    // Tutti i valori attesi sono per colonne, come i buffer ArrayFire.
+    const double atteso_m1[] = {3, -1, 3, 1};
+    const double atteso_z1[] = {3.5, -0.5, 2.5, 0.5};
+    const double atteso_h[] = {3.5, 0, 2.5, 0.5};
+    const double atteso_m2[] = {4.25, 0.5, -4.25, -0.5};
+    const double atteso_z2[] = {5, 1.25, -4, -0.25};
+    const double atteso_p[] = {0.9998766054240137, 0.8175744761936437,
+                              0.0001233945759863, 0.1824255238063563};
+    const double atteso_loss[] = {4.600768340086238};
+    printf("\nRete 2 -> 2 -> 2, due campioni, bias a entrambi i livelli, ReLU -> softmax\n");
+    int forward_corretto = verifica_valori("W1 * X", nodi[M1]->valore, 2, 2, atteso_m1);
+    forward_corretto &= verifica_valori("Z1 = W1 * X + B1", nodi[Z1]->valore, 2, 2, atteso_z1);
+    forward_corretto &= verifica_valori("H = ReLU(Z1)", nodi[H]->valore, 2, 2, atteso_h);
+    forward_corretto &= verifica_valori("H * W2", nodi[M2]->valore, 2, 2, atteso_m2);
+    forward_corretto &= verifica_valori("Z2 = H * W2 + B2", nodi[Z2]->valore, 2, 2, atteso_z2);
+    forward_corretto &= verifica_valori("P (forward)", nodi[P]->valore, 2, 2, atteso_p);
+    forward_corretto &= verifica_valori("Loss (forward)", nodi[LOSS]->valore, 1, 1, atteso_loss);
+    assert(forward_corretto && "Forward della rete a due livelli errato");
+    if (!forward_corretto) { err = AF_ERR_RUNTIME; goto cleanup; }
+
+    find_leaf(&ingressi, &leaf);
+    assert(leaf.length == 1 && leaf.node[0] == nodi[LOSS]);
+    if (leaf.length != 1 || leaf.node[0] != nodi[LOSS]) {
+        err = AF_ERR_RUNTIME;
         goto cleanup;
     }
-
-    // La ricerca parte solo dalle entry val; il risultato lo riempie find_leaf.
-    leaf.node = calloc((size_t)leaf.size, sizeof *leaf.node);
-    assert(leaf.node != NULL);
-    if (leaf.node == NULL) goto cleanup;
-
-    find_leaf(&nodes, &leaf);
-    printf("\nGrafo 1 - Foglie trovate da find_leaf: %d\n", leaf.length);
-    for (int i = 0; i < leaf.length; ++i) {
-        int indice = 0;
-        while (indice < numero_nodi && nodi[indice] != leaf.node[i]) ++indice;
-        printf("Foglia %d: nodo N%d\n", i, indice);
-        err = af_print_array(leaf.node[i]->valore);
-        if (err != AF_SUCCESS) goto cleanup;
-    }
-    assert(leaf.length == 1);
-    assert(leaf.node[0] == foglia_attesa);
     assert(leaf.node[0]->left == NULL && leaf.node[0]->right == NULL);
-    for (int i = 0; i < NUM_VAL; ++i)
-        assert(!is_node_in_array(&leaf, val[i]));
+    for (int i = 0; i < ingressi.length; ++i)
+        assert(!is_node_in_array(&leaf, ingressi.node[i]));
 
-    // La stessa foglia e' raggiungibile da piu' entry: non deve essere duplicata.
-    find_leaf(&nodes, &leaf);
-    assert(leaf.length == 1);
-    assert(leaf.node[0] == foglia_attesa);
-
-    leaf.length = 0;
-    find_leaf_helper(val[0], &leaf);
-    assert(leaf.length == 1);
-    assert(leaf.node[0] == foglia_attesa);
-
-    // Nessuna entry: nessuna foglia.
-    array_node vuoto = {0};
-    leaf.length = 0;
-    find_leaf(&vuoto, &leaf);
-    assert(leaf.length == 0);
-
-    printf("\nAssert grafo 1 superati: loss condivisa, nessun duplicato, helper ed entry vuote.\n");
-
-    int entranti[MAX_NODI] = {0};
-    char etichette[MAX_NODI][40];
-    err = stampa_grafo(1, nodi, numero_nodi, figli, entranti, etichette);
-    if (err != AF_SUCCESS) goto cleanup;
-
-    // ReLU, softmax e loss hanno un solo collegamento entrante nel grafo.
-    int uscite = 0, matmul = 0, somme = 0, relu = 0, softmax = 0, loss = 0;
-    int collegamenti_ok = numero_nodi == 11;
-    for (int i = 0; i < numero_nodi; ++i) {
-        if (nodi[i]->tipo == TYPE_VAL) {
-            if (i >= NUM_VAL || entranti[i] != 0) collegamenti_ok = 0;
-        } else {
-            int operandi = (nodi[i]->operazione == OP_RELU ||
-                            nodi[i]->operazione == OP_SOFTMAX ||
-                            nodi[i]->operazione == OP_CROSS_ENTROPY) ? 1 : 2;
-            if (entranti[i] != operandi) collegamenti_ok = 0;
-            if (nodi[i]->operazione == OP_MATMUL) ++matmul;
-            else if (nodi[i]->operazione == OP_SUM) ++somme;
-            else if (nodi[i]->operazione == OP_RELU) ++relu;
-            else if (nodi[i]->operazione == OP_SOFTMAX) ++softmax;
-            else if (nodi[i]->operazione == OP_CROSS_ENTROPY) ++loss;
-            else collegamenti_ok = 0;
-        }
-        if (figli[i][0] < 0 && figli[i][1] < 0) ++uscite;
-    }
-    if (!collegamenti_ok || uscite != 1 || matmul != 3 || somme != 1 ||
-        relu != 2 || softmax != 1 || loss != 1) {
-        fprintf(stderr, "Test fallito: collegamenti diversi da quelli attesi.\n");
+    // La loss e' raggiunta da tutti e cinque gli ingressi: nessun duplicato,
+    // anche ripetendo la ricerca sullo stesso array.
+    find_leaf(&ingressi, &leaf);
+    assert(leaf.length == 1 && leaf.node[0] == nodi[LOSS]);
+    if (leaf.length != 1 || leaf.node[0] != nodi[LOSS]) {
+        err = AF_ERR_RUNTIME;
         goto cleanup;
     }
-    printf("\nTest collegamenti superato: 3 ingressi, 3 matmul, 1 somma, 2 ReLU, 1 softmax, 1 cross-entropy, un'uscita.\n");
+    puts("Assert foglie superati: unica foglia CROSS_ENTROPY, nessun duplicato.");
 
-    // Risultati calcolati a mano, in ordine di visita e memorizzati per colonne.
-    const double attesi[11][6] = {
-        {1, -4, -2, 5, 3, -6}, // N0: A
-        {1, 0, 1, 0, 1, 1},    // N1: B
-        {1, 0, 0, -2},         // N2: C
-        {4, -10, 1, -1},       // N3: A * B
-        {4, 0, -2, 0},         // N4: ReLU(A * B) * C
-        {17, 0, -8, -2},       // N5: N7 + C
-        {4, 0, 1, 0},          // N6: ReLU(A * B)
-        {16, 0, -8, 0},        // N7: N6 * N4
-        {17, 0, 0, 0},         // N8: ReLU(N5)
-        {1.0, 0.5, 4.1399377e-8, 0.5}, // N9: softmax(N8), classi lungo ogni riga
-        {(17.0 + log(2.0)) / 2.0} // N10: cross-entropy(N9, target)
-    };
-    const op operazioni_attese[11] = {
-        OP_NULL, OP_NULL, OP_NULL, OP_MATMUL, OP_MATMUL,
-        OP_SUM, OP_RELU, OP_MATMUL, OP_RELU, OP_SOFTMAX, OP_CROSS_ENTROPY
-    };
+    // Unica chiamata che produce i gradienti: implementazione dell'utente.
+    fflush(stdout);
+    backwards(&leaf, target);
 
-    printf("\nValori di ogni nodo:\n");
-    for (int i = 0; i < numero_nodi; ++i) {
-        dim_t dims[4];
-        err = af_get_dims(&dims[0], &dims[1], &dims[2], &dims[3], nodi[i]->valore);
-        if (err != AF_SUCCESS) goto cleanup;
-        int nodo_loss = nodi[i]->operazione == OP_CROSS_ENTROPY;
-        dim_t righe_attese = i < NUM_VAL ? dimensioni[i][0] : nodo_loss ? 1 : 2;
-        dim_t colonne_attese = i < NUM_VAL ? dimensioni[i][1] : nodo_loss ? 1 : 2;
-        assert(dims[0] == righe_attese && dims[1] == colonne_attese);
-        assert(dims[2] == 1 && dims[3] == 1);
-        assert(nodi[i]->operazione == operazioni_attese[i]);
-        if (dims[0] != righe_attese || dims[1] != colonne_attese ||
-            dims[2] != 1 || dims[3] != 1) goto cleanup;
-
-        // La loss e' f64; convertiamo la lettura per verificare tutti i nodi.
-        double ottenuti[6];
-        af_array lettura = 0;
-        err = af_cast(&lettura, nodi[i]->valore, f64);
-        if (err != AF_SUCCESS) goto cleanup;
-        err = af_get_data_ptr(ottenuti, lettura);
-        af_release_array(lettura);
-        if (err != AF_SUCCESS) goto cleanup;
-        printf("\n%s\n", etichette[i]);
-        err = af_print_array(nodi[i]->valore);
-        if (err != AF_SUCCESS) goto cleanup;
-        fflush(stdout);
-
-        // Gli interi sono esatti; softmax e loss ammettono errori di arrotondamento.
-        for (dim_t j = 0; j < righe_attese * colonne_attese; ++j) {
-            int corretto = nodo_loss
-                         ? fabs(ottenuti[j] - attesi[i][j]) <= 1e-6
-                         : nodi[i]->operazione == OP_SOFTMAX
-                         ? fabs(ottenuti[j] - attesi[i][j]) <=
-                           1e-12 + 1e-6 * fabs(attesi[i][j])
-                         : ottenuti[j] == attesi[i][j];
-            if (!corretto) {
-                fprintf(stderr, "N%d, elemento %lld: atteso %g, ottenuto %g.\n",
-                        i, (long long)j, (double)attesi[i][j], (double)ottenuti[j]);
-            }
-            assert(corretto);
-            if (!corretto) goto cleanup;
-        }
-    }
-    printf("\nTutti gli assert sui valori dei nodi sono superati.\n");
-
-    // Grafo 2: tre entry nuove. Il registro nodi_misti serve per stampa,
-    // assert e cleanup; find_leaf riceve soltanto val_misti.
-    float dati_misti[NUM_VAL][4] = {
-        {1, -2, 3, -4}, {2, 1, 0, 2}, {1, 0, 0, 1}
-    };
-    dim_t dimensioni_miste[] = {2, 2};
-    for (int i = 0; i < NUM_VAL; ++i) {
-        af_array ingresso = 0;
-        err = af_create_array(&ingresso, dati_misti[i], 2, dimensioni_miste, f32);
-        if (err != AF_SUCCESS) goto cleanup;
-        val_misti[i] = create_val(ingresso);
-        if (val_misti[i] == NULL) {
-            af_release_array(ingresso);
-            goto cleanup;
-        }
-        nodi_misti[i] = val_misti[i];
-    }
-
-    nodi_misti[3] = add_op(val_misti[0], val_misti[1], NULL, OP_SUM);
-    if (nodi_misti[3] == NULL) goto cleanup;
-    nodi_misti[4] = add_op(val_misti[1], NULL, NULL, OP_RELU);
-    if (nodi_misti[4] == NULL) goto cleanup;
-    nodi_misti[5] = add_op(nodi_misti[3], NULL, NULL, OP_SOFTMAX);
-    if (nodi_misti[5] == NULL) goto cleanup;
-    nodi_misti[6] = add_op(nodi_misti[5], NULL, target, OP_CROSS_ENTROPY);
-    if (nodi_misti[6] == NULL) goto cleanup;
-    nodi_misti[7] = add_op(nodi_misti[3], val_misti[2], NULL, OP_MATMUL);
-    if (nodi_misti[7] == NULL) goto cleanup;
-
-    // Ricaviamo gli archi del disegno dai collegamenti reali del secondo grafo.
-    int figli_misti[NUM_MISTI][2], entranti_misti[NUM_MISTI] = {0};
-    char etichette_miste[NUM_MISTI][40];
-    for (int i = 0; i < NUM_MISTI; ++i) {
-        node* collegati[] = {nodi_misti[i]->left, nodi_misti[i]->right};
-        for (int j = 0; j < 2; ++j) {
-            figli_misti[i][j] = -1;
-            if (collegati[j] == NULL) continue;
-            int indice = 0;
-            while (indice < NUM_MISTI && nodi_misti[indice] != collegati[j]) ++indice;
-            if (indice == NUM_MISTI) {
-                fprintf(stderr, "Nodo del grafo 2 non registrato.\n");
-                goto cleanup;
-            }
-            figli_misti[i][j] = indice;
-        }
-    }
-    err = stampa_grafo(2, nodi_misti, NUM_MISTI, figli_misti,
-                       entranti_misti, etichette_miste);
-    if (err != AF_SUCCESS) goto cleanup;
-
-    // Solo le funzioni in prova riempiono l'array delle foglie.
-    leaf_miste.node = calloc((size_t)leaf_miste.size, sizeof *leaf_miste.node);
-    assert(leaf_miste.node != NULL);
-    if (leaf_miste.node == NULL) goto cleanup;
-    find_leaf(&nodes_misti, &leaf_miste);
-    assert(leaf_miste.length == 3);
-
-    // I puntatori attesi provengono dalla costruzione, senza una seconda ricerca.
-    node* foglie_miste_attese[] = {nodi_misti[4], nodi_misti[6], nodi_misti[7]};
-    for (int i = 0; i < 3; ++i) {
-        int occorrenze = 0;
-        for (int j = 0; j < leaf_miste.length; ++j)
-            if (leaf_miste.node[j] == foglie_miste_attese[i]) ++occorrenze;
-        assert(occorrenze == 1);
-    }
-
-    const char* nomi_operazioni[] = {
-        "SUM", "MATMUL", "RELU", "SOFTMAX", "CROSS_ENTROPY", "NULL"
-    };
-    printf("\nGrafo 2 - Foglie trovate da find_leaf: %d\n", leaf_miste.length);
-    for (int i = 0; i < leaf_miste.length; ++i) {
-        node* trovata = leaf_miste.node[i];
-        assert(trovata->left == NULL && trovata->right == NULL);
-        int indice = 0;
-        while (indice < NUM_MISTI && nodi_misti[indice] != trovata) ++indice;
-        printf("Foglia %d: nodo N%d (%s)\n", i, indice,
-               nomi_operazioni[trovata->operazione]);
-        err = af_print_array(trovata->valore);
-        if (err != AF_SUCCESS) goto cleanup;
-    }
-
-    find_leaf(&nodes_misti, &leaf_miste);
-    assert(leaf_miste.length == 3);
-    for (int i = 0; i < 3; ++i)
-        assert(is_node_in_array(&leaf_miste, foglie_miste_attese[i]));
-
-    leaf_miste.length = 0;
-    for (int i = 0; i < nodes_misti.length; ++i)
-        find_leaf_helper(nodes_misti.node[i], &leaf_miste);
-    assert(leaf_miste.length == 3);
-    for (int i = 0; i < 3; ++i) {
-        int occorrenze = 0;
-        for (int j = 0; j < leaf_miste.length; ++j)
-            if (leaf_miste.node[j] == foglie_miste_attese[i]) ++occorrenze;
-        assert(occorrenze == 1);
-    }
-    printf("Assert grafo 2 superati: tre foglie miste, nessun duplicato e helper.\n");
-    stato = EXIT_SUCCESS;
+    // a = p/2, b = (q-1)/2: il fattore 1/2 viene dalla loss media.
+    // dZ2 = [[a,-a],[b,-b]].
+    // dW2 = H^T * dZ2; dH = dZ2 * W2^T; dZ1 = dH * maschera_ReLU(Z1).
+    // dW1 = dZ1 * X^T; dB1 e dB2 sono le somme sui campioni.
+    const double atteso_dw1[] = {1.9997532108480274, -0.1824255238063563,
+                                2.4996915135600344, -0.3648510476127127};
+    const double atteso_db1[] = {0.4999383027120068, 0.8174510816176573};
+    const double atteso_dw2[] = {1.7497840594920240, 1.2042393758284282,
+                                -1.7497840594920240, -1.2042393758284282};
+    const double atteso_db2[] = {0.4087255408088287, -0.4087255408088287};
+    const double atteso_dh[] = {0.4999383027120068, -0.0912127619031782,
+                               0.9998766054240137, -0.1824255238063563};
+    const double atteso_dz1[] = {0.4999383027120068, 0, 0.9998766054240137, -0.1824255238063563};
+    const double atteso_dz2[] = {0.4999383027120068, -0.0912127619031782,
+                                -0.4999383027120068, 0.0912127619031782};
+    gradienti_corretti &= verifica_valori("dW1", nodi[W1]->gradiente, 2, 2, atteso_dw1);
+    gradienti_corretti &= verifica_valori("dB1", nodi[B1]->gradiente, 1, 2, atteso_db1);
+    gradienti_corretti &= verifica_valori("dW2", nodi[W2]->gradiente, 2, 2, atteso_dw2);
+    gradienti_corretti &= verifica_valori("dB2", nodi[B2]->gradiente, 1, 2, atteso_db2);
+    gradienti_corretti &= verifica_valori("dH", nodi[H]->gradiente, 2, 2, atteso_dh);
+    gradienti_corretti &= verifica_valori("dZ1", nodi[Z1]->gradiente, 2, 2, atteso_dz1);
+    gradienti_corretti &= verifica_valori("dZ2", nodi[Z2]->gradiente, 2, 2, atteso_dz2);
+    fflush(stdout);
 
 cleanup:
-    free(leaf.node);
-    free(leaf_miste.node);
-    for (int i = 0; i < NUM_MISTI; ++i) {
-        if (nodi_misti[i] == NULL) continue;
-        if (nodi_misti[i]->gradiente) af_release_array(nodi_misti[i]->gradiente);
-        if (nodi_misti[i]->valore) af_release_array(nodi_misti[i]->valore);
-        free(nodi_misti[i]);
-    }
-    if (err != AF_SUCCESS)
-        fprintf(stderr, "Errore ArrayFire: %d\n", (int)err);
     if (target) af_release_array(target);
-    // Ogni nodo trovato viene rilasciato una volta, anche se e' condiviso.
-    for (int i = 0; i < numero_nodi; ++i) {
-        if (nodi[i]->gradiente) af_release_array(nodi[i]->gradiente);
+    // matmul_gradient puo' condividere lo stesso handle tra nodi:
+    // il cleanup rilascia ogni handle distinto una volta, dopo i confronti.
+    for (int i = 0; i < NUM_NODI; ++i) {
+        if (nodi[i] == NULL || nodi[i]->gradiente == NULL) continue;
+        int gia_visto = 0;
+        for (int j = 0; j < i; ++j)
+            if (nodi[j] && nodi[j]->gradiente == nodi[i]->gradiente) gia_visto = 1;
+        if (!gia_visto) af_release_array(nodi[i]->gradiente);
+    }
+    for (int i = 0; i < NUM_NODI; ++i) {
+        if (nodi[i] == NULL) continue;
         if (nodi[i]->valore) af_release_array(nodi[i]->valore);
         free(nodi[i]);
     }
-    return stato;
+    assert(gradienti_corretti && "backwards: gradienti diversi dai valori attesi");
+    if (!gradienti_corretti) return AF_ERR_RUNTIME;
+    if (err == AF_SUCCESS) puts("Assert backwards a due livelli superati.");
+    return err;
+}
+
+int main(void)
+{
+    // Mantiene visibile l'ultimo passaggio anche se la libreria si interrompe.
+    setvbuf(stdout, NULL, _IONBF, 0);
+    af_err err = test_rete_due_livelli();
+    if (err != AF_SUCCESS) {
+        fprintf(stderr, "Test fallito (errore %d).\n", (int)err);
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
 }
