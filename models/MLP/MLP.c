@@ -16,14 +16,28 @@ static void _clear_gradients(node* nodo){
 }
 
 void _clear_mlp(array_node* graph){
-    node* operazione = graph->node[graph->length - 1]->left;
-    while(operazione != NULL){
-        node* successiva = operazione->left;
-        _clear_gradients(operazione);
-        if(operazione->valore != NULL) af_release_array(operazione->valore);
-        free(operazione);
-        operazione = successiva;
+    array_node nodi = {.length = graph->length, .size = graph->length};
+    nodi.node = malloc((size_t)nodi.size * sizeof *nodi.node);
+    for(int i = 0; i < graph->length; i++) nodi.node[i] = graph->node[i];
+
+    // Raccogli prima tutti i nodi: un nodo condiviso va liberato una sola volta.
+    for(int i = 0; i < nodi.length; i++){
+        node* figli[] = {nodi.node[i]->left, nodi.node[i]->right};
+        for(int j = 0; j < 2; j++){
+            if(figli[j] != NULL && !is_node_in_array(&nodi, figli[j])){
+                nodi.size++;
+                nodi.node = realloc(nodi.node, (size_t)nodi.size * sizeof *nodi.node);
+                nodi.node[nodi.length++] = figli[j];
+            }
+        }
     }
+
+    for(int i = graph->length; i < nodi.length; i++){
+        _clear_gradients(nodi.node[i]);
+        if(nodi.node[i]->valore != NULL) af_release_array(nodi.node[i]->valore);
+        free(nodi.node[i]);
+    }
+    free(nodi.node);
 
     for(int i = 0; i < graph->length; i++){
         _clear_gradients(graph->node[i]);

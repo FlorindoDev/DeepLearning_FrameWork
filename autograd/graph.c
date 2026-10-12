@@ -276,6 +276,6 @@ af_array matrix_map(af_array matrix,double (*fun)(double)){
             af_release_array(nuovo_valore);
         }
     }
-    return aggiornata;
+    return aggiornata == 0 ? matrix : aggiornata;
     
 }

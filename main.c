@@ -9,7 +9,7 @@
 ################################################################
 */
 
-enum { PIXEL = 784, CLASSI = 10, NASCOSTI = 64, BATCH = 64, EPOCHE = 5 };
+enum { PIXEL = 784, CLASSI = 10, NASCOSTI = 64, BATCH = 64, EPOCHE = 20 };
 
 typedef struct {
     unsigned char* immagini;
