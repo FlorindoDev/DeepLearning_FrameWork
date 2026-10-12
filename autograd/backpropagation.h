@@ -13,7 +13,7 @@
     void sum_gradient(node* pre_node, node* node);
     void matmul_gradient(node* pre_node, node* node);
     void weight_gradient(node* pre_node, node* cur_node);
-    void activation_fun_gradient(node* pre_node, node* node,float (*fun)(float));
+    void activation_fun_gradient(node* pre_node, node* node,double (*fun)(double));
     void bias_gradient(node* pre_node, node* node);
 
 

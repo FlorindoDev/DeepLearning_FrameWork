@@ -1,12 +1,12 @@
 #include "activation_function.h"
 
-float relu(float val){
+double relu(double val){
     return val > 0 ? val : 0;
 
 }
 
-float relu_derivative(float val){
-    return val > 0 ? 1.0f : 0.0f;
+double relu_derivative(double val){
+    return val > 0 ? 1.0 : 0.0;
 }
 
 af_array softmax_derivative(af_array predizioni){

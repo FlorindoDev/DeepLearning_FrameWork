@@ -177,12 +177,16 @@ static int verifica_valori(const char* nome, af_array gradiente,
         return 0;
     }
 
-    af_array convertito = 0;
+    af_dtype tipo;
+    err = af_get_type(&tipo, gradiente);
+    if (err != AF_SUCCESS || tipo != f64) {
+        fprintf(stderr, "%s: tipo errato, atteso f64.\n", nome);
+        return 0;
+    }
+
     double valori[4];
     assert(righe * colonne <= 4);
-    err = af_cast(&convertito, gradiente, f64);
-    if (err == AF_SUCCESS) err = af_get_data_ptr(valori, convertito);
-    if (convertito) af_release_array(convertito);
+    err = af_get_data_ptr(valori, gradiente);
     if (err != AF_SUCCESS) {
         fprintf(stderr, "%s: lettura dei valori fallita (%d).\n", nome, (int)err);
         return 0;
@@ -203,7 +207,10 @@ static af_err test_rete_due_livelli(void)
     enum { X, W1, B1, W2, B2, M1, Z1, H, M2, Z2, P, LOSS, NUM_NODI };
     node* nodi[NUM_NODI] = {NULL};
     node* foglie[NUM_NODI] = {NULL};
-    array_node ingressi = {.node = nodi, .size = 5, .length = 5};
+    // Spazio per layers[-1] (ingressi) e layers[2] (iterazione del nodo input).
+    int dimensioni[] = {2, 2, 2, 2};
+    int* layers = &dimensioni[1];
+    array_node* ingressi = NULL;
     array_node leaf = {.node = foglie, .size = NUM_NODI, .length = 0};
     af_array target = 0;
     af_err err = AF_SUCCESS;
@@ -211,26 +218,102 @@ static af_err test_rete_due_livelli(void)
 
     // Due campioni, due layer con bias: ReLU nel primo, softmax nel secondo.
     // H = ReLU(W1 * X + B1); P = softmax(H * W2 + B2).
-    // Buffer per colonne. Il primo matmul segue la convenzione TYPE_INPUT.
-    const float dati[5][4] = {
-        {2, 1, 1, 2}, {1, -1, 1, 1}, {0.5f, -0.5f},
-        {0.5f, 1, -0.5f, -1}, {0.75f, 0.25f}
-    };
-    const dim_t forme[5][2] = {{2, 2}, {2, 2}, {1, 2}, {2, 2}, {1, 2}};
-    const node_type tipi[5] = {TYPE_INPUT, TYPE_WEIGHT, TYPE_BIAS, TYPE_WEIGHT, TYPE_BIAS};
-    const float dati_target[4] = {0, 1, 1, 0};
-    for (int i = 0; i < ingressi.length; ++i) {
-        af_array valore = 0;
-        err = af_create_array(&valore, dati[i], 2, forme[i], f32);
-        if (err != AF_SUCCESS) goto cleanup;
-        nodi[i] = create_val(valore, tipi[i]);
-        if (nodi[i] == NULL) {
-            af_release_array(valore);
-            err = AF_ERR_NO_MEM;
+    // init_graph crea W1, B1, W2, B2 e input; nodi li registra per stampa e cleanup.
+    puts("Test init_graph: creazione di W1, B1, W2, B2 e input...");
+    ingressi = init_graph(layers, 2);
+    puts("Test init_graph: funzione terminata, controllo dei nodi restituiti.");
+    if (ingressi == NULL) {
+        fprintf(stderr, "init_graph ha restituito NULL.\n");
+        err = AF_ERR_NO_MEM;
+        goto cleanup;
+    }
+    if (ingressi->node == NULL || ingressi->size != 5 || ingressi->length != 5) {
+        fprintf(stderr, "init_graph: attesi cinque nodi, size=5 e length=5.\n");
+        err = AF_ERR_SIZE;
+        goto cleanup;
+    }
+    nodi[W1] = ingressi->node[0];
+    nodi[B1] = ingressi->node[1];
+    nodi[W2] = ingressi->node[2];
+    nodi[B2] = ingressi->node[3];
+    nodi[X] = ingressi->node[4];
+
+    const node_type tipi_attesi[5] = {TYPE_INPUT, TYPE_WEIGHT, TYPE_BIAS, TYPE_WEIGHT, TYPE_BIAS};
+    const char* nomi_entry[5] = {"input", "W1", "B1", "W2", "B2"};
+    for (int i = 0; i < ingressi->length; ++i) {
+        node* entry = nodi[i];
+        if (entry == NULL || entry->tipo != tipi_attesi[i] || entry->operazione != OP_NULL ||
+            entry->gradiente != NULL || entry->left != NULL || entry->right != NULL ||
+            entry->father_left != NULL || entry->father_right != NULL) {
+            fprintf(stderr, "init_graph: nodo %s assente o inizializzato in modo errato.\n", nomi_entry[i]);
+            err = AF_ERR_RUNTIME;
             goto cleanup;
         }
+        for (int j = 0; j < i; ++j) {
+            if (entry == nodi[j]) {
+                fprintf(stderr, "init_graph: due entry condividono lo stesso nodo.\n");
+                err = AF_ERR_RUNTIME;
+                goto cleanup;
+            }
+        }
+        if (i == X) {
+            if (entry->valore != NULL) {
+                fprintf(stderr, "init_graph: il nodo input deve attendere i dati del campione.\n");
+                err = AF_ERR_RUNTIME;
+                goto cleanup;
+            }
+        } else {
+            dim_t dims[4];
+            if (entry->valore == NULL) {
+                fprintf(stderr, "init_graph: matrice %s assente.\n", nomi_entry[i]);
+                err = AF_ERR_RUNTIME;
+                goto cleanup;
+            }
+            af_dtype tipo;
+            err = af_get_type(&tipo, entry->valore);
+            if (err != AF_SUCCESS) goto cleanup;
+            if (tipo != f64) {
+                fprintf(stderr, "init_graph: %s deve avere tipo f64.\n", nomi_entry[i]);
+                err = AF_ERR_TYPE;
+                goto cleanup;
+            }
+            err = af_get_dims(&dims[0], &dims[1], &dims[2], &dims[3], entry->valore);
+            dim_t righe = entry->tipo == TYPE_BIAS ? 1 : 2;
+            if (err != AF_SUCCESS) goto cleanup;
+            if (dims[0] != righe || dims[1] != 2 || dims[2] != 1 || dims[3] != 1) {
+                fprintf(stderr, "init_graph: %s deve avere forma %lldx2.\n", nomi_entry[i], (long long)righe);
+                err = AF_ERR_SIZE;
+                goto cleanup;
+            }
+            if (entry->tipo == TYPE_BIAS) {
+                const double zeri[] = {0, 0};
+                if (!verifica_valori(nomi_entry[i], entry->valore, 1, 2, zeri)) {
+                    err = AF_ERR_RUNTIME;
+                    goto cleanup;
+                }
+            }
+        }
+        printf("init_graph: nodo %s [OK]\n", nomi_entry[i]);
     }
-    err = af_create_array(&target, dati_target, 2, forme[W2], f32);
+    puts("Test init_graph superato. Carico i valori noti per i test precedenti.");
+
+    // Carichiamo gli stessi dati del test nei nodi creati dalla libreria.
+    // I valori noti sostituiscono quelli casuali per mantenere gli assert numerici.
+    // Buffer per colonne. Il primo matmul segue la convenzione TYPE_INPUT.
+    const double dati[5][4] = {
+        {2, 1, 1, 2}, {1, -1, 1, 1}, {0.5, -0.5},
+        {0.5, 1, -0.5, -1}, {0.75, 0.25}
+    };
+    const dim_t forme[5][2] = {{2, 2}, {2, 2}, {1, 2}, {2, 2}, {1, 2}};
+    const double dati_target[4] = {0, 1, 1, 0};
+    for (int i = 0; i < ingressi->length; ++i) {
+        af_array valore = 0;
+        err = af_create_array(&valore, dati[i], 2, forme[i], f64);
+        if (err != AF_SUCCESS) goto cleanup;
+        if (nodi[i]->valore) af_release_array(nodi[i]->valore);
+        nodi[i]->valore = valore;
+    }
+    err = af_create_array(&target, dati_target, 2, forme[W2], f64);
     if (err != AF_SUCCESS) goto cleanup;
 
     puts("Forward livello 1: W1 * X + B1 -> ReLU");
@@ -294,19 +377,19 @@ static af_err test_rete_due_livelli(void)
     assert(forward_corretto && "Forward della rete a due livelli errato");
     if (!forward_corretto) { err = AF_ERR_RUNTIME; goto cleanup; }
 
-    find_leaf(&ingressi, &leaf);
+    find_leaf(ingressi, &leaf);
     assert(leaf.length == 1 && leaf.node[0] == nodi[LOSS]);
     if (leaf.length != 1 || leaf.node[0] != nodi[LOSS]) {
         err = AF_ERR_RUNTIME;
         goto cleanup;
     }
     assert(leaf.node[0]->left == NULL && leaf.node[0]->right == NULL);
-    for (int i = 0; i < ingressi.length; ++i)
-        assert(!is_node_in_array(&leaf, ingressi.node[i]));
+    for (int i = 0; i < ingressi->length; ++i)
+        assert(!is_node_in_array(&leaf, ingressi->node[i]));
 
     // La loss e' raggiunta da tutti e cinque gli ingressi: nessun duplicato,
     // anche ripetendo la ricerca sullo stesso array.
-    find_leaf(&ingressi, &leaf);
+    find_leaf(ingressi, &leaf);
     assert(leaf.length == 1 && leaf.node[0] == nodi[LOSS]);
     if (leaf.length != 1 || leaf.node[0] != nodi[LOSS]) {
         err = AF_ERR_RUNTIME;
@@ -315,8 +398,10 @@ static af_err test_rete_due_livelli(void)
     puts("Assert foglie superati: unica foglia CROSS_ENTROPY, nessun duplicato.");
 
     // Unica chiamata che produce i gradienti: implementazione dell'utente.
+    puts("Backward: avvio backwards...");
     fflush(stdout);
     backwards(&leaf, target);
+    puts("Backward terminato. Verifica dei gradienti:");
 
     // a = p/2, b = (q-1)/2: il fattore 1/2 viene dalla loss media.
     // dZ2 = [[a,-a],[b,-b]].
@@ -337,7 +422,7 @@ static af_err test_rete_due_livelli(void)
     gradienti_corretti &= verifica_valori("dB1", nodi[B1]->gradiente, 1, 2, atteso_db1);
     gradienti_corretti &= verifica_valori("dW2", nodi[W2]->gradiente, 2, 2, atteso_dw2);
     gradienti_corretti &= verifica_valori("dB2", nodi[B2]->gradiente, 1, 2, atteso_db2);
-    gradienti_corretti &= verifica_valori("dH", nodi[H]->gradiente, 2, 2, atteso_dh);
+    gradienti_corretti &= verifica_valori("dH", nodi[H]->temp, 2, 2, atteso_dh);
     gradienti_corretti &= verifica_valori("dZ1", nodi[Z1]->gradiente, 2, 2, atteso_dz1);
     gradienti_corretti &= verifica_valori("dZ2", nodi[Z2]->gradiente, 2, 2, atteso_dz2);
     fflush(stdout);
@@ -358,6 +443,10 @@ cleanup:
         if (nodi[i]->valore) af_release_array(nodi[i]->valore);
         free(nodi[i]);
     }
+    if (ingressi) {
+        free(ingressi->node);
+        free(ingressi);
+    }
     assert(gradienti_corretti && "backwards: gradienti diversi dai valori attesi");
     if (!gradienti_corretti) return AF_ERR_RUNTIME;
     if (err == AF_SUCCESS) puts("Assert backwards a due livelli superati.");
@@ -368,6 +457,7 @@ int main(void)
 {
     // Mantiene visibile l'ultimo passaggio anche se la libreria si interrompe.
     setvbuf(stdout, NULL, _IONBF, 0);
+    puts("Avvio test: init_graph, forward, ricerca foglie e backward.");
     af_err err = test_rete_due_livelli();
     if (err != AF_SUCCESS) {
         fprintf(stderr, "Test fallito (errore %d).\n", (int)err);

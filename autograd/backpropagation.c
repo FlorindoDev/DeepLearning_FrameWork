@@ -2,7 +2,7 @@
 
 static void _accumulate_gradient(node* node, af_array gradiente);
 static af_array _softmax_gradient_helper(af_array predizioni, af_array gradiente_loss);
-static node* _input_father(node* pre_node, node* cur_node);
+static node* _other_father(node* child, node* father);
 
 void backwards(array_node* leafs, af_array targets){
 
@@ -64,7 +64,7 @@ void backwards_helper(node* cur_node, node* pre_node, af_array targets){
 
 
 void weight_gradient(node* pre_node, node* cur_node){
-    node* input = _input_father(pre_node, cur_node);
+    node* input = _other_father(pre_node, cur_node);
     if(input == NULL) return;
 
     af_array valore_input = 0, gradiente = 0;
@@ -76,30 +76,31 @@ void weight_gradient(node* pre_node, node* cur_node){
         // Y = W * X: grad(W) = grad(Y) * X^T.
         af_matmul(&gradiente, pre_node->gradiente, valore_input, AF_MAT_NONE, AF_MAT_TRANS);
     }else{
-        // Y = X * W: grad(W) = X^T * grad(Y).
+        // Y = X * W: grad(W) =  H^T * grad(Y) .
         af_matmul(&gradiente, valore_input, pre_node->gradiente, AF_MAT_TRANS, AF_MAT_NONE);
     }
     af_release_array(valore_input);
     _accumulate_gradient(cur_node, gradiente);
 }
 
-void activation_fun_gradient(node* pre_node, node* node,float (*fun)(float)){
+void activation_fun_gradient(node* pre_node, node* node,double (*fun)(double)){
 
     af_array valore = 0;
     af_array gradiente_h = 0;
     af_array gradiente_relu = 0;
 
-    struct node* input = _input_father(pre_node, node);
+    struct node* input = _other_father(pre_node, node);
 
     af_copy_array(&valore,  node->father_left == NULL ? node->father_right->valore : node->father_left->valore);
 
     af_array derivative_relu = matrix_map(valore,fun);
 
-    af_matmul(&gradiente_h, input->valore, pre_node->gradiente, AF_MAT_NONE, AF_MAT_TRANS);
+    af_matmul(&gradiente_h,pre_node->gradiente, input->valore,AF_MAT_NONE, AF_MAT_TRANS);
     af_mul(&gradiente_relu, derivative_relu, gradiente_h, false);
     af_release_array(derivative_relu);
-    _accumulate_gradient(node, gradiente_relu);
 
+    node->temp = gradiente_h;
+    _accumulate_gradient(node, gradiente_relu);
 
 }
 
@@ -133,13 +134,13 @@ void matmul_gradient(node* pre_node, node* node){
 }
 
 
-static node* _input_father(node* pre_node, node* cur_node){
+static node* _other_father(node* child, node* father){
     
     node* altro_padre = NULL;
-    if(pre_node->father_left == cur_node){
-        altro_padre = pre_node->father_right;
-    }else if(pre_node->father_right == cur_node){
-        altro_padre = pre_node->father_left;
+    if(child->father_left == father){
+        altro_padre = child->father_right;
+    }else if(child->father_right == father){
+        altro_padre = child->father_left;
     }
 
     return altro_padre;

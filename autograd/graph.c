@@ -1,4 +1,6 @@
 #include "graph.h"
+#include <limits.h>
+#include <math.h>
 #include <stdlib.h>
 
 node* alloc_node(node_type type)
@@ -11,10 +13,12 @@ node* alloc_node(node_type type)
 }
 
 void init_node(node* nodo, af_array valore,
-               af_array gradiente, op operazione,
+               af_array gradiente, af_array temp, op operazione,
                node_type tipo, node* left, node* right,node* father_left, node* father_right){
+    
     nodo->valore = valore;
     nodo->gradiente = gradiente;
+    nodo->temp = temp;
     nodo->operazione = operazione;
     nodo->tipo = tipo;
     nodo->left = left;
@@ -43,11 +47,11 @@ void add_child(node* father,node* child){
 node* create_val(af_array val,node_type type){
     if(type > 0 && type <= 4){
         node* node = alloc_node(type);
-        init_node(node,val,NULL,OP_NULL,type,NULL,NULL,NULL,NULL);
+        init_node(node,val,NULL,NULL,OP_NULL,type,NULL,NULL,NULL,NULL);
         return node;
     }else{
         node* node = alloc_node(type);
-        init_node(node,val,NULL,OP_NULL,TYPE_VAL,NULL,NULL,NULL,NULL);
+        init_node(node,val,NULL,NULL,OP_NULL,TYPE_VAL,NULL,NULL,NULL,NULL);
         return node;
     }
 }
@@ -68,7 +72,7 @@ node* add_matmul(node* left_node,node* right_node,op op){
     af_matmul(&A,left_node->valore,right_node->valore,AF_MAT_NONE,AF_MAT_NONE);
 
     node* node = alloc_node(TYPE_OP);
-    init_node(node,A,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
+    init_node(node,A,NULL,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
     add_child(left_node,node);
     add_child(right_node,node);
     return node;
@@ -81,13 +85,13 @@ node* add_sum(node* left_node,node* right_node,op op){
     af_add(&A, left_node->valore,right_node->valore, true);
 
     node* node = alloc_node(TYPE_OP);
-    init_node(node,A,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
+    init_node(node,A,NULL,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
     add_child(left_node,node);
     add_child(right_node,node);
     return node;
 }
 
-node* add_activation(node* input_node, float (*fun)(float),op op){
+node* add_activation(node* input_node, double (*fun)(double),op op){
 
     af_array A = 0;
     af_copy_array(&A, input_node->valore);
@@ -95,7 +99,7 @@ node* add_activation(node* input_node, float (*fun)(float),op op){
     A = matrix_map(A,fun);
 
     node* node = alloc_node(TYPE_OP);
-    init_node(node,A,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
+    init_node(node,A,NULL,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
     add_child(input_node,node);
     return node;
 }
@@ -108,7 +112,7 @@ node* add_softmax(node* input_node,op op){
     A = softmax(A,1);
 
     node* node = alloc_node(TYPE_OP);
-    init_node(node,A,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
+    init_node(node,A,NULL,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
     add_child(input_node,node);
     return node;
 }
@@ -121,7 +125,7 @@ node* add_loss(node* input_node,af_array target,af_array (*fun)(af_array,af_arra
     A = fun(A,target);
 
     node* node = alloc_node(TYPE_OP);
-    init_node(node,A,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
+    init_node(node,A,NULL,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);
     add_child(input_node,node);
     return node;
 }
@@ -147,7 +151,7 @@ node* add_op(node* left_node,node* right_node, af_array target,op op){
 
 }
 
-af_array matrix_map(af_array matrix,float (*fun)(float)){
+af_array matrix_map(af_array matrix,double (*fun)(double)){
 
     dim_t dims[4];
     af_get_dims(&dims[0], &dims[1],&dims[2], &dims[3],matrix);
@@ -164,13 +168,13 @@ af_array matrix_map(af_array matrix,float (*fun)(float)){
             af_array elemento = 0;
             af_index(&elemento, matrix, 2, posizione);
 
-            float x;
+            double x;
             af_get_scalar(&x, elemento);
             x = fun(x);
 
             af_array nuovo_valore = 0;
             dim_t dims[] = {1, 1};
-            af_create_array(&nuovo_valore, &x, 2, dims, f32);
+            af_create_array(&nuovo_valore, &x, 2, dims, f64);
 
             aggiornata = 0;
             af_assign_seq(&aggiornata, matrix, 2, posizione, nuovo_valore);
@@ -227,8 +231,63 @@ void find_leaf_helper(node* node, array_node* leaf){
 
 }
 
-int is_value_node(node* node){
-    return node->tipo == TYPE_VAL;
+
+int is_val(node* node){
+    return (node->tipo >= 1 && node->tipo <= 4);
+
+}
+
+array_node* init_graph(int layers[], int n){
+    
+    array_node* graph = calloc(1, sizeof *graph);
+
+    graph->size = 2 * n + 1;
+    graph->node = calloc((size_t)graph->size, sizeof *graph->node);
+
+    for(int i = 0; i < graph->size; i++){
+        af_array weight = 0;
+        node_type tipo;
+
+        af_array bias = 0;
+        dim_t dims[] = {1, layers[(i/2)]};
+        af_constant(&bias, 0.0, 2, dims, f64);
+
+        if(i == graph->size - 1){
+            tipo = TYPE_INPUT;
+        }else if(i % 2 == 0){
+            tipo = TYPE_WEIGHT;
+            weight = init_weights(layers[i/2], layers[(i/2)-1]);
+            af_release_array(bias);
+        }else{
+            tipo = TYPE_BIAS;
+            weight = bias;
+        }
+
+        graph->node[i] = alloc_node(tipo);
+        
+        init_node(graph->node[i], weight, NULL, NULL, OP_NULL, tipo, NULL, NULL, NULL, NULL);
+        graph->length++;
+    }
+
+    return graph;
+}
+
+af_array init_weights(dim_t righe, dim_t colonne){
+
+    dim_t dims[] = {righe, colonne};
+    dim_t scalare[] = {1};
+    af_array casuali = 0, scala = 0, pesi = 0;
+
+   
+    af_randn(&casuali, 2, dims, f64);
+    af_constant(&scala, sqrt(2.0 / (double)colonne), 1, scalare, f64);
+    af_mul(&pesi, casuali, scala, true);
+    
+
+    af_release_array(casuali);
+    af_release_array(scala);
+
+    return pesi;
 }
 
 
