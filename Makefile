@@ -17,7 +17,7 @@ CPPFLAGS = -I"$(AF_DIR)/include"     			#serve per trovare i file include
 LDFLAGS = -L"$(AF_LIB_DIR)"						#serve per far trovare i file c al linker
 LDLIBS = -lafcpu $(LDLIBS_EXTRA)				#serve per far trovare la singola libreria(in c ci sono i .lib)
 
-TARGET = frame_work.exe
+TARGET = frame_work
 OBJ = main.o graph.o activation_function.o loss.o backpropagation.o MLP.o optimizer.o
 
 #$@  nome dell’obiettivo da generare.
