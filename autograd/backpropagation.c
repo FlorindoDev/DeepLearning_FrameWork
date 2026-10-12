@@ -1,8 +1,20 @@
 #include "backpropagation.h"
 
+/*
+################################################################
+# DICHIARAZIONI DEGLI HELPER                                   #
+################################################################
+*/
+
+static node* _other_father(node* child, node* father);
 static void _accumulate_gradient(node* node, af_array gradiente);
 static af_array _softmax_gradient_helper(af_array predizioni, af_array gradiente_loss);
-static node* _other_father(node* child, node* father);
+
+/*
+################################################################
+# VISITA DEL GRAFO                                             #
+################################################################
+*/
 
 void backwards(array_node* leafs, af_array targets){
 
@@ -61,26 +73,24 @@ void backwards_helper(node* cur_node, node* pre_node, af_array targets){
 
 }
 
+/*
+################################################################
+# GRADIENTI DELLE OPERAZIONI                                   #
+################################################################
+*/
 
+void matmul_gradient(node* pre_node, node* node){
+    af_array gradeinte_child = 0;
+    if(af_retain_array(&gradeinte_child, pre_node->gradiente) != AF_SUCCESS) return;
+    _accumulate_gradient(node, gradeinte_child);
+}
 
-void weight_gradient(node* pre_node, node* cur_node){
-    node* input = _other_father(pre_node, cur_node);
-    if(input == NULL) return;
+void sum_gradient(node* pre_node, node* node){
+    // Handle distinto: l'accumulo puo' rilasciarlo senza invalidare il figlio.
+    af_array gradeinte_child = 0;
+    if(af_retain_array(&gradeinte_child, pre_node->gradiente) != AF_SUCCESS) return;
+    _accumulate_gradient(node, gradeinte_child);
 
-    af_array valore_input = 0, gradiente = 0;
-    af_dtype tipo;
-    af_get_type(&tipo, pre_node->gradiente);
-    af_cast(&valore_input, input->valore, tipo);
-
-    if(input->tipo == TYPE_INPUT){
-        // Y = W * X: grad(W) = grad(Y) * X^T.
-        af_matmul(&gradiente, pre_node->gradiente, valore_input, AF_MAT_NONE, AF_MAT_TRANS);
-    }else{
-        // Y = X * W: grad(W) =  H^T * grad(Y) .
-        af_matmul(&gradiente, valore_input, pre_node->gradiente, AF_MAT_TRANS, AF_MAT_NONE);
-    }
-    af_release_array(valore_input);
-    _accumulate_gradient(cur_node, gradiente);
 }
 
 void activation_fun_gradient(node* pre_node, node* node,double (*fun)(double)){
@@ -116,12 +126,30 @@ void cross_entropy_gradient(node* node, af_array targets){
     _accumulate_gradient(node, gradiente);
 }
 
-void sum_gradient(node* pre_node, node* node){
-    // Handle distinto: l'accumulo puo' rilasciarlo senza invalidare il figlio.
-    af_array gradeinte_child = 0;
-    if(af_retain_array(&gradeinte_child, pre_node->gradiente) != AF_SUCCESS) return;
-    _accumulate_gradient(node, gradeinte_child);
+/*
+################################################################
+# GRADIENTI DEI PARAMETRI                                      #
+################################################################
+*/
 
+void weight_gradient(node* pre_node, node* cur_node){
+    node* input = _other_father(pre_node, cur_node);
+    if(input == NULL) return;
+
+    af_array valore_input = 0, gradiente = 0;
+    af_dtype tipo;
+    af_get_type(&tipo, pre_node->gradiente);
+    af_cast(&valore_input, input->valore, tipo);
+
+    if(input->tipo == TYPE_INPUT){
+        // Y = W * X: grad(W) = grad(Y) * X^T.
+        af_matmul(&gradiente, pre_node->gradiente, valore_input, AF_MAT_NONE, AF_MAT_TRANS);
+    }else{
+        // Y = X * W: grad(W) =  H^T * grad(Y) .
+        af_matmul(&gradiente, valore_input, pre_node->gradiente, AF_MAT_TRANS, AF_MAT_NONE);
+    }
+    af_release_array(valore_input);
+    _accumulate_gradient(cur_node, gradiente);
 }
 
 void bias_gradient(node* pre_node, node* node){
@@ -130,12 +158,11 @@ void bias_gradient(node* pre_node, node* node){
     _accumulate_gradient(node, gradiente_bias);
 }
 
-void matmul_gradient(node* pre_node, node* node){
-    af_array gradeinte_child = 0;
-    if(af_retain_array(&gradeinte_child, pre_node->gradiente) != AF_SUCCESS) return;
-    _accumulate_gradient(node, gradeinte_child);
-}
-
+/*
+################################################################
+# HELPER INTERNI                                               #
+################################################################
+*/
 
 static node* _other_father(node* child, node* father){
     
@@ -161,7 +188,6 @@ static void _accumulate_gradient(node* node, af_array gradiente){
     }
 }
 
-
 static af_array _softmax_gradient_helper(af_array predizioni, af_array gradiente_loss){
     af_array derivata = softmax_derivative(predizioni);
     af_array convertita = 0, derivate_batch = 0, gradiente_batch = 0;
@@ -185,8 +211,3 @@ static af_array _softmax_gradient_helper(af_array predizioni, af_array gradiente
     af_release_array(prodotto);
     return risultato;
 }
-
-
-
-
-

@@ -41,33 +41,34 @@
         int length;
     } array_node;
 
+    array_node* init_graph(int layers[], int n);
+    // init He
+    af_array init_weights(dim_t righe, dim_t colonne);
 
     node* alloc_node(node_type);
-
     void init_node(node* nodo, af_array valore,
                    af_array gradiente, af_array temp, op operazione,
                    node_type tipo, node* left, node* right,
                    node* father_left, node* father_right
                 );
+    node* create_val(af_array,node_type);
+    void add_child(node*,node*);
 
     node* add_op(node*,node*,af_array,op);
-    void add_child(node*,node*);
-    node* create_val(af_array,node_type);
     node* add_matmul(node*,node*,op);
     node* add_sum(node*,node*,op);
     node* add_activation(node*,double (*fun)(double),op);
     node* add_softmax(node*,op);
-    af_array matrix_map(af_array,double (*fun)(double));
     node* add_loss(node*,af_array,af_array (*fun)(af_array,af_array),op);
-    int is_node_in_array(array_node*, node*);
+
     void find_leaf(array_node* nodes, array_node* leaf);
     void find_leaf_helper(node* node,  array_node* leaf);
+
+    int is_node_in_array(array_node*, node*);
     int is_val(node* node);
     int have_tow_child(node* father);
-    array_node* init_graph(int layers[], int n);
+    af_array matrix_map(af_array,double (*fun)(double));
 
-    // init He
-    af_array init_weights(dim_t righe, dim_t colonne);
     
     
 

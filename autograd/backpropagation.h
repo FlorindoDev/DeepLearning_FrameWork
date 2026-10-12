@@ -5,16 +5,16 @@
     #include "../loss/loss.h"
     #include "graph.h"
 
-    
     void backwards(array_node* leafs, af_array targets);
     void backwards_helper(node* cur_node, node* pre_node, af_array targets);
+
+    void matmul_gradient(node* pre_node, node* node);
+    void sum_gradient(node* pre_node, node* node);
+    void activation_fun_gradient(node* pre_node, node* node,double (*fun)(double));
     void softmax_gradient(node* pre_node, node* node);
     void cross_entropy_gradient(node* node, af_array targets);
-    void sum_gradient(node* pre_node, node* node);
-    void matmul_gradient(node* pre_node, node* node);
-    void weight_gradient(node* pre_node, node* cur_node);
-    void activation_fun_gradient(node* pre_node, node* node,double (*fun)(double));
-    void bias_gradient(node* pre_node, node* node);
 
+    void weight_gradient(node* pre_node, node* cur_node);
+    void bias_gradient(node* pre_node, node* node);
 
 #endif

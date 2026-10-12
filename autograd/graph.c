@@ -3,6 +3,71 @@
 #include <math.h>
 #include <stdlib.h>
 
+/*
+################################################################
+# INIZIALIZZAZIONE DEL GRAFO                                   #
+################################################################
+*/
+
+array_node* init_graph(int layers[], int n){
+    
+    array_node* graph = calloc(1, sizeof *graph);
+
+    graph->size = 2 * n + 1;
+    graph->node = calloc((size_t)graph->size, sizeof *graph->node);
+
+    for(int i = 0; i < graph->size; i++){
+        af_array weight = 0;
+        node_type tipo;
+
+        af_array bias = 0;
+        dim_t dims[] = {1, layers[(i/2)]};
+        af_constant(&bias, 0.0, 2, dims, f64);
+
+        if(i == graph->size - 1){
+            tipo = TYPE_INPUT;
+        }else if(i % 2 == 0){
+            tipo = TYPE_WEIGHT;
+            weight = init_weights(layers[i/2], layers[(i/2)-1]);
+            af_release_array(bias);
+        }else{
+            tipo = TYPE_BIAS;
+            weight = bias;
+        }
+
+        graph->node[i] = alloc_node(tipo);
+        
+        init_node(graph->node[i], weight, NULL, NULL, OP_NULL, tipo, NULL, NULL, NULL, NULL);
+        graph->length++;
+    }
+
+    return graph;
+}
+
+af_array init_weights(dim_t righe, dim_t colonne){
+
+    dim_t dims[] = {righe, colonne};
+    dim_t scalare[] = {1};
+    af_array casuali = 0, scala = 0, pesi = 0;
+
+   
+    af_randn(&casuali, 2, dims, f64);
+    af_constant(&scala, sqrt(2.0 / (double)colonne), 1, scalare, f64);
+    af_mul(&pesi, casuali, scala, true);
+    
+
+    af_release_array(casuali);
+    af_release_array(scala);
+
+    return pesi;
+}
+
+/*
+################################################################
+# GESTIONE DEI NODI                                            #
+################################################################
+*/
+
 node* alloc_node(node_type type)
 {
     node* nodo = calloc(1, sizeof *nodo);
@@ -27,6 +92,18 @@ void init_node(node* nodo, af_array valore,
     nodo->father_right = father_right;
 }
 
+node* create_val(af_array val,node_type type){
+    if(type > 0 && type <= 4){
+        node* node = alloc_node(type);
+        init_node(node,val,NULL,NULL,OP_NULL,type,NULL,NULL,NULL,NULL);
+        return node;
+    }else{
+        node* node = alloc_node(type);
+        init_node(node,val,NULL,NULL,OP_NULL,TYPE_VAL,NULL,NULL,NULL,NULL);
+        return node;
+    }
+}
+
 void add_child(node* father,node* child){
     if(father->left == NULL){
         father->left = child;
@@ -44,18 +121,30 @@ void add_child(node* father,node* child){
     }
 }
 
-node* create_val(af_array val,node_type type){
-    if(type > 0 && type <= 4){
-        node* node = alloc_node(type);
-        init_node(node,val,NULL,NULL,OP_NULL,type,NULL,NULL,NULL,NULL);
-        return node;
-    }else{
-        node* node = alloc_node(type);
-        init_node(node,val,NULL,NULL,OP_NULL,TYPE_VAL,NULL,NULL,NULL,NULL);
-        return node;
-    }
-}
+/*
+################################################################
+# COSTRUZIONE DELLE OPERAZIONI                                 #
+################################################################
+*/
 
+node* add_op(node* left_node,node* right_node, af_array target,op op){
+
+    switch (op){
+    case OP_MATMUL:
+        return add_matmul(left_node,right_node,op);
+    case OP_SUM:
+        return add_sum(left_node,right_node,op);
+    case OP_RELU:
+        return add_activation(left_node,relu,op);
+    case OP_SOFTMAX:
+        return add_softmax(left_node,op);
+    case OP_CROSS_ENTROPY:
+        return add_loss(left_node,target,cross_entropy,op);
+    default:
+        return NULL;
+    }
+
+}
 
 node* add_matmul(node* left_node,node* right_node,op op){
 
@@ -130,25 +219,64 @@ node* add_loss(node* input_node,af_array target,af_array (*fun)(af_array,af_arra
     return node;
 }
 
+/*
+################################################################
+# RICERCA DELLE FOGLIE                                         #
+################################################################
+*/
 
+void find_leaf(array_node* nodes, array_node* leaf){
 
-node* add_op(node* left_node,node* right_node, af_array target,op op){
-
-    switch (op){
-    case OP_MATMUL:
-        return add_matmul(left_node,right_node,op);
-    case OP_SUM:
-        return add_sum(left_node,right_node,op);
-    case OP_RELU:
-        return add_activation(left_node,relu,op);
-    case OP_SOFTMAX:
-        return add_softmax(left_node,op);
-    case OP_CROSS_ENTROPY:
-        return add_loss(left_node,target,cross_entropy,op);
-    default:
-        return NULL;
+    for(int i = 0 ;i<nodes->length;i++){
+        find_leaf_helper(nodes->node[i],leaf);
     }
 
+}
+
+void find_leaf_helper(node* node, array_node* leaf){
+
+    if(node->left == NULL && node->right == NULL){
+        if(!is_node_in_array(leaf, node)){
+            leaf->node[leaf->length] = node;
+            leaf->length++;
+        }
+        return;
+    }
+    
+    if(node->left != NULL){
+        find_leaf_helper(node->left,leaf);
+    }
+
+    if(node->right != NULL){
+        find_leaf_helper(node->right,leaf);
+    }
+
+    return;
+
+}
+
+/*
+################################################################
+# UTILITA                                                      #
+################################################################
+*/
+
+int is_node_in_array(array_node* array, node* node){
+    int flag=0;
+    for(int i=0; i<array->length;i++){
+        if(array->node[i] == node) flag = 1;
+
+    }
+    return flag;
+}
+
+int is_val(node* node){
+    return (node->tipo >= 1 && node->tipo <= 4);
+
+}
+
+int have_tow_child(node* father){
+    return (father->left != NULL && father->right != NULL);
 }
 
 af_array matrix_map(af_array matrix,double (*fun)(double)){
@@ -189,111 +317,3 @@ af_array matrix_map(af_array matrix,double (*fun)(double)){
     return aggiornata;
     
 }
-
-int is_node_in_array(array_node* array, node* node){
-    int flag=0;
-    for(int i=0; i<array->length;i++){
-        if(array->node[i] == node) flag = 1;
-
-    }
-    return flag;
-}
-
-int have_tow_child(node* father){
-    return (father->left != NULL && father->right != NULL);
-}
-
-
-
-void find_leaf(array_node* nodes, array_node* leaf){
-
-    for(int i = 0 ;i<nodes->length;i++){
-        find_leaf_helper(nodes->node[i],leaf);
-    }
-
-}
-
-void find_leaf_helper(node* node, array_node* leaf){
-
-    if(node->left == NULL && node->right == NULL){
-        if(!is_node_in_array(leaf, node)){
-            leaf->node[leaf->length] = node;
-            leaf->length++;
-        }
-        return;
-    }
-    
-    if(node->left != NULL){
-        find_leaf_helper(node->left,leaf);
-    }
-
-    if(node->right != NULL){
-        find_leaf_helper(node->right,leaf);
-    }
-
-    return;
-
-}
-
-
-int is_val(node* node){
-    return (node->tipo >= 1 && node->tipo <= 4);
-
-}
-
-array_node* init_graph(int layers[], int n){
-    
-    array_node* graph = calloc(1, sizeof *graph);
-
-    graph->size = 2 * n + 1;
-    graph->node = calloc((size_t)graph->size, sizeof *graph->node);
-
-    for(int i = 0; i < graph->size; i++){
-        af_array weight = 0;
-        node_type tipo;
-
-        af_array bias = 0;
-        dim_t dims[] = {1, layers[(i/2)]};
-        af_constant(&bias, 0.0, 2, dims, f64);
-
-        if(i == graph->size - 1){
-            tipo = TYPE_INPUT;
-        }else if(i % 2 == 0){
-            tipo = TYPE_WEIGHT;
-            weight = init_weights(layers[i/2], layers[(i/2)-1]);
-            af_release_array(bias);
-        }else{
-            tipo = TYPE_BIAS;
-            weight = bias;
-        }
-
-        graph->node[i] = alloc_node(tipo);
-        
-        init_node(graph->node[i], weight, NULL, NULL, OP_NULL, tipo, NULL, NULL, NULL, NULL);
-        graph->length++;
-    }
-
-    return graph;
-}
-
-af_array init_weights(dim_t righe, dim_t colonne){
-
-    dim_t dims[] = {righe, colonne};
-    dim_t scalare[] = {1};
-    af_array casuali = 0, scala = 0, pesi = 0;
-
-   
-    af_randn(&casuali, 2, dims, f64);
-    af_constant(&scala, sqrt(2.0 / (double)colonne), 1, scalare, f64);
-    af_mul(&pesi, casuali, scala, true);
-    
-
-    af_release_array(casuali);
-    af_release_array(scala);
-
-    return pesi;
-}
-
-
-
-
