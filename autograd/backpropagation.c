@@ -2,6 +2,7 @@
 
 static void _accumulate_gradient(node* node, af_array gradiente);
 static af_array _softmax_gradient_helper(af_array predizioni, af_array gradiente_loss);
+static node* _input_father(node* pre_node, node* cur_node);
 
 void backwards(array_node* leafs, af_array targets){
 
@@ -15,7 +16,6 @@ void backwards_helper(node* cur_node, node* pre_node, af_array targets){
 
     if(cur_node->tipo == TYPE_WEIGHT){
         weight_gradient(pre_node, cur_node);
-        return;
     }else if(cur_node->tipo == TYPE_BIAS){
         bias_gradient(pre_node, cur_node);
     }
@@ -61,17 +61,7 @@ void backwards_helper(node* cur_node, node* pre_node, af_array targets){
 
 }
 
-static node* _input_father(node* pre_node, node* cur_node){
-    
-    node* altro_padre = NULL;
-    if(pre_node->father_left == cur_node){
-        altro_padre = pre_node->father_right;
-    }else if(pre_node->father_right == cur_node){
-        altro_padre = pre_node->father_left;
-    }
 
-    return altro_padre;
-}
 
 void weight_gradient(node* pre_node, node* cur_node){
     node* input = _input_father(pre_node, cur_node);
@@ -142,6 +132,18 @@ void matmul_gradient(node* pre_node, node* node){
     _accumulate_gradient(node, gradeinte_child);
 }
 
+
+static node* _input_father(node* pre_node, node* cur_node){
+    
+    node* altro_padre = NULL;
+    if(pre_node->father_left == cur_node){
+        altro_padre = pre_node->father_right;
+    }else if(pre_node->father_right == cur_node){
+        altro_padre = pre_node->father_left;
+    }
+
+    return altro_padre;
+}
 
 static void _accumulate_gradient(node* node, af_array gradiente){
     if(node->gradiente != NULL){
