@@ -130,3 +130,5 @@ node* forward(array_node* graph, activation_fun activation){
     return node;
 
 }
+
+//TODO: Trining loop
