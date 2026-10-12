@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <math.h>
 
-enum { MAX_NODI = 12, LARGHEZZA = 200, PASSO = 4 };
+enum { MAX_NODI = 16, LARGHEZZA = 200, PASSO = 4 };
 
 // Disegna i collegamenti gia' presenti: non costruisce nodi e non cerca foglie.
 static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
@@ -453,6 +453,196 @@ cleanup:
     return err;
 }
 
+static af_err test_rete_due_loss(void)
+{
+    enum { X, W1, B1, W2, B2, B3, M1, Z1, H, M2, Z2,
+           P1, LOSS1, Z3, P2, LOSS2, NUM_NODI };
+    node* nodi[NUM_NODI] = {NULL};
+    node* foglie[NUM_NODI] = {NULL};
+    array_node leaf = {.node = foglie, .size = NUM_NODI, .length = 0};
+    int dimensioni[] = {2, 2, 2, 2};
+    array_node* ingressi = NULL;
+    af_array target = 0;
+    af_err err = AF_SUCCESS;
+    int gradienti_corretti = 1;
+
+    puts("\nTest Grafo 2: SUM condiviso, due rami e Loss totale = Loss1 + Loss2.");
+    // Stessa rete del Grafo 1. Il secondo ramo usa un bias aggiuntivo:
+    // Z2 -> softmax -> Loss1; Z2 -> SUM con B3 -> softmax -> Loss2.
+    // Il target e' comune: backwards accetta un solo target per tutte le foglie.
+    ingressi = init_graph(&dimensioni[1], 2);
+    if (ingressi == NULL || ingressi->node == NULL) {
+        err = AF_ERR_NO_MEM;
+        goto cleanup;
+    }
+    nodi[W1] = ingressi->node[0];
+    nodi[B1] = ingressi->node[1];
+    nodi[W2] = ingressi->node[2];
+    nodi[B2] = ingressi->node[3];
+    nodi[X] = ingressi->node[4];
+    nodi[B3] = alloc_node(TYPE_BIAS);
+    if (nodi[B3] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    init_node(nodi[B3], NULL, NULL, NULL, OP_NULL, TYPE_BIAS,
+              NULL, NULL, NULL, NULL);
+
+    const double dati[6][4] = {
+        {2, 1, 1, 2}, {1, -1, 1, 1}, {0.5, -0.5},
+        {0.5, 1, -0.5, -1}, {0.75, 0.25}, {-1, 1}
+    };
+    const dim_t forme[6][2] = {
+        {2, 2}, {2, 2}, {1, 2}, {2, 2}, {1, 2}, {1, 2}
+    };
+    const double dati_target[] = {0, 1, 1, 0};
+    for (int i = 0; i < 6; ++i) {
+        af_array valore = 0;
+        err = af_create_array(&valore, dati[i], 2, forme[i], f64);
+        if (err != AF_SUCCESS) goto cleanup;
+        if (nodi[i]->valore) af_release_array(nodi[i]->valore);
+        nodi[i]->valore = valore;
+    }
+    err = af_create_array(&target, dati_target, 2, forme[X], f64);
+    if (err != AF_SUCCESS) goto cleanup;
+
+    nodi[M1] = add_op(nodi[W1], nodi[X], NULL, OP_MATMUL);
+    if (nodi[M1] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[Z1] = add_op(nodi[M1], nodi[B1], NULL, OP_SUM);
+    if (nodi[Z1] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[H] = add_op(nodi[Z1], NULL, NULL, OP_RELU);
+    if (nodi[H] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[M2] = add_op(nodi[H], nodi[W2], NULL, OP_MATMUL);
+    if (nodi[M2] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[Z2] = add_op(nodi[M2], nodi[B2], NULL, OP_SUM);
+    if (nodi[Z2] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[P1] = add_op(nodi[Z2], NULL, NULL, OP_SOFTMAX);
+    if (nodi[P1] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[LOSS1] = add_op(nodi[P1], NULL, target, OP_CROSS_ENTROPY);
+    if (nodi[LOSS1] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[Z3] = add_op(nodi[Z2], nodi[B3], NULL, OP_SUM);
+    if (nodi[Z3] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[P2] = add_op(nodi[Z3], NULL, NULL, OP_SOFTMAX);
+    if (nodi[P2] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+    nodi[LOSS2] = add_op(nodi[P2], NULL, target, OP_CROSS_ENTROPY);
+    if (nodi[LOSS2] == NULL) { err = AF_ERR_NO_MEM; goto cleanup; }
+
+    int figli[NUM_NODI][2], entranti[NUM_NODI];
+    char etichette[NUM_NODI][40];
+    for (int i = 0; i < NUM_NODI; ++i) {
+        node* collegati[] = {nodi[i]->left, nodi[i]->right};
+        for (int j = 0; j < 2; ++j) {
+            figli[i][j] = -1;
+            if (collegati[j] == NULL) continue;
+            int indice = 0;
+            while (indice < NUM_NODI && nodi[indice] != collegati[j]) ++indice;
+            if (indice == NUM_NODI) { err = AF_ERR_SIZE; goto cleanup; }
+            figli[i][j] = indice;
+        }
+    }
+    err = stampa_grafo(2, nodi, NUM_NODI, figli, entranti, etichette);
+    if (err != AF_SUCCESS) goto cleanup;
+
+    // Oracle scalare indipendente dalla backprop e dalle derivate ArrayFire.
+    // Z2 = [[5,-4],[1.25,-0.25]], Z3 = [[4,-3],[0.25,0.75]].
+    // Ogni cross-entropy fa la media su due campioni; la loss totale e' la somma.
+    const double p = 1.0 / (1.0 + exp(-9.0));
+    const double q = 1.0 / (1.0 + exp(-1.5));
+    const double r = 1.0 / (1.0 + exp(-7.0));
+    const double s = 1.0 / (1.0 + exp(0.5));
+    const double a1 = p / 2.0, b1 = (q - 1.0) / 2.0;
+    const double a2 = r / 2.0, b2 = (s - 1.0) / 2.0;
+    const double a = a1 + a2, b = b1 + b2;
+    const double atteso_z2[] = {5, 1.25, -4, -0.25};
+    const double atteso_z3[] = {4, 0.25, -3, 0.75};
+    const double atteso_p1[] = {p, q, 1.0 - p, 1.0 - q};
+    const double atteso_p2[] = {r, s, 1.0 - r, 1.0 - s};
+    const double atteso_loss1[] = {(log1p(exp(9.0)) + log1p(exp(-1.5))) / 2.0};
+    const double atteso_loss2[] = {(log1p(exp(7.0)) + log1p(exp(0.5))) / 2.0};
+    int forward_corretto = verifica_valori("G2 Z2 condiviso", nodi[Z2]->valore, 2, 2, atteso_z2);
+    forward_corretto &= verifica_valori("G2 Z3 ramo 2", nodi[Z3]->valore, 2, 2, atteso_z3);
+    forward_corretto &= verifica_valori("G2 P1", nodi[P1]->valore, 2, 2, atteso_p1);
+    forward_corretto &= verifica_valori("G2 P2", nodi[P2]->valore, 2, 2, atteso_p2);
+    forward_corretto &= verifica_valori("G2 Loss1", nodi[LOSS1]->valore, 1, 1, atteso_loss1);
+    forward_corretto &= verifica_valori("G2 Loss2", nodi[LOSS2]->valore, 1, 1, atteso_loss2);
+    if (!forward_corretto) { err = AF_ERR_RUNTIME; goto cleanup; }
+
+    find_leaf(ingressi, &leaf);
+    find_leaf_helper(nodi[B3], &leaf);
+    find_leaf(ingressi, &leaf);
+    if (leaf.length != 2 || !is_node_in_array(&leaf, nodi[LOSS1]) ||
+        !is_node_in_array(&leaf, nodi[LOSS2]) || leaf.node[0] == leaf.node[1]) {
+        fprintf(stderr, "Grafo 2: attese due foglie CROSS_ENTROPY distinte.\n");
+        err = AF_ERR_RUNTIME;
+        goto cleanup;
+    }
+    if (nodi[Z2]->left != nodi[P1] || nodi[Z2]->right != nodi[Z3]) {
+        fprintf(stderr, "Grafo 2: SUM non condiviso dai due rami.\n");
+        err = AF_ERR_RUNTIME;
+        goto cleanup;
+    }
+    puts("Grafo 2: due foglie distinte, SUM condiviso e forward [OK].");
+
+    // Calcolo dei gradienti attesi PRIMA di chiamare backwards.
+    // Sono valori indipendenti: non vengono assegnati ai nodi del grafo.
+    // dZ2 = dZ2_Loss1 + dZ2_Loss2 = [[a,-a],[b,-b]].
+    // dZ3 e dB3 ricevono soltanto il contributo della seconda loss.
+    // Tutti i buffer sono per colonne, come nel Grafo 1.
+    const double atteso_dz2[] = {a, b, -a, -b};
+    const double atteso_dz3[] = {a2, b2, -a2, -b2};
+    const double atteso_dw2[] = {3.5*a, 2.5*a + 0.5*b, -3.5*a, -2.5*a - 0.5*b};
+    const double atteso_db2[] = {a + b, -a - b};
+    const double atteso_db3[] = {a2 + b2, -a2 - b2};
+    const double atteso_dh[] = {a, b, 2*a, 2*b};
+    const double atteso_dz1[] = {a, 0, 2*a, 2*b};
+    const double atteso_dw1[] = {4*a, 2*b, 5*a, 4*b};
+    const double atteso_db1[] = {a, 2*a + 2*b};
+    puts("Backward Grafo 2: avvio backwards sulle due loss...");
+    fflush(stdout);
+    backwards(&leaf, target);
+    puts("Backward Grafo 2 terminato. Verifica dei gradienti:");
+    gradienti_corretti &= verifica_valori("G2 dW1", nodi[W1]->gradiente, 2, 2, atteso_dw1);
+    gradienti_corretti &= verifica_valori("G2 dB1", nodi[B1]->gradiente, 1, 2, atteso_db1);
+    gradienti_corretti &= verifica_valori("G2 dW2", nodi[W2]->gradiente, 2, 2, atteso_dw2);
+    gradienti_corretti &= verifica_valori("G2 dB2", nodi[B2]->gradiente, 1, 2, atteso_db2);
+    gradienti_corretti &= verifica_valori("G2 dB3 ramo 2", nodi[B3]->gradiente, 1, 2, atteso_db3);
+    gradienti_corretti &= verifica_valori("G2 dH", nodi[H]->temp, 2, 2, atteso_dh);
+    gradienti_corretti &= verifica_valori("G2 dZ1", nodi[Z1]->gradiente, 2, 2, atteso_dz1);
+    gradienti_corretti &= verifica_valori("G2 dM1", nodi[M1]->gradiente, 2, 2, atteso_dz1);
+    gradienti_corretti &= verifica_valori("G2 dZ2 condiviso", nodi[Z2]->gradiente, 2, 2, atteso_dz2);
+    gradienti_corretti &= verifica_valori("G2 dM2", nodi[M2]->gradiente, 2, 2, atteso_dz2);
+    gradienti_corretti &= verifica_valori("G2 dZ3 ramo 2", nodi[Z3]->gradiente, 2, 2, atteso_dz3);
+
+cleanup:
+    if (target) af_release_array(target);
+    // L'implementazione puo' condividere handle tra gradiente, temp e nodi.
+    // Ogni handle distinto ancora presente viene rilasciato una sola volta.
+    af_array rilasciati[NUM_NODI * 3];
+    int numero_rilasciati = 0;
+    for (int i = 0; i < NUM_NODI; ++i) {
+        if (nodi[i] == NULL) continue;
+        af_array arrays[] = {nodi[i]->valore, nodi[i]->gradiente, nodi[i]->temp};
+        for (int j = 0; j < 3; ++j) {
+            if (arrays[j] == NULL) continue;
+            int gia_visto = 0;
+            for (int k = 0; k < numero_rilasciati; ++k)
+                if (rilasciati[k] == arrays[j]) gia_visto = 1;
+            if (!gia_visto) {
+                rilasciati[numero_rilasciati++] = arrays[j];
+                af_release_array(arrays[j]);
+            }
+        }
+    }
+    for (int i = 0; i < NUM_NODI; ++i) free(nodi[i]);
+    if (ingressi) {
+        free(ingressi->node);
+        free(ingressi);
+    }
+    if (!gradienti_corretti) {
+        fprintf(stderr, "Grafo 2 fallito: accumulo dei gradienti di due loss errato.\n");
+        return AF_ERR_RUNTIME;
+    }
+    if (err == AF_SUCCESS) puts("Assert backwards Grafo 2 con due loss superati.");
+    return err;
+}
+
 int main(void)
 {
     // Mantiene visibile l'ultimo passaggio anche se la libreria si interrompe.
@@ -461,6 +651,11 @@ int main(void)
     af_err err = test_rete_due_livelli();
     if (err != AF_SUCCESS) {
         fprintf(stderr, "Test fallito (errore %d).\n", (int)err);
+        return EXIT_FAILURE;
+    }
+    err = test_rete_due_loss();
+    if (err != AF_SUCCESS) {
+        fprintf(stderr, "Test Grafo 2 fallito (errore %d).\n", (int)err);
         return EXIT_FAILURE;
     }
     return EXIT_SUCCESS;

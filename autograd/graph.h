@@ -63,6 +63,7 @@
     void find_leaf(array_node* nodes, array_node* leaf);
     void find_leaf_helper(node* node,  array_node* leaf);
     int is_val(node* node);
+    int have_tow_child(node* father);
     array_node* init_graph(int layers[], int n);
 
     // init He

@@ -199,6 +199,10 @@ int is_node_in_array(array_node* array, node* node){
     return flag;
 }
 
+int have_tow_child(node* father){
+    return (father->left != NULL && father->right != NULL);
+}
+
 
 
 void find_leaf(array_node* nodes, array_node* leaf){

@@ -117,7 +117,9 @@ void cross_entropy_gradient(node* node, af_array targets){
 }
 
 void sum_gradient(node* pre_node, node* node){
-    af_array gradeinte_child = pre_node->gradiente;
+    // Handle distinto: l'accumulo puo' rilasciarlo senza invalidare il figlio.
+    af_array gradeinte_child = 0;
+    if(af_retain_array(&gradeinte_child, pre_node->gradiente) != AF_SUCCESS) return;
     _accumulate_gradient(node, gradeinte_child);
 
 }
@@ -129,7 +131,8 @@ void bias_gradient(node* pre_node, node* node){
 }
 
 void matmul_gradient(node* pre_node, node* node){
-    af_array gradeinte_child = pre_node->gradiente;
+    af_array gradeinte_child = 0;
+    if(af_retain_array(&gradeinte_child, pre_node->gradiente) != AF_SUCCESS) return;
     _accumulate_gradient(node, gradeinte_child);
 }
 
@@ -147,7 +150,7 @@ static node* _other_father(node* child, node* father){
 }
 
 static void _accumulate_gradient(node* node, af_array gradiente){
-    if(node->gradiente != NULL){
+    if(node->gradiente != NULL && have_tow_child(node)){
         af_array somma = 0;
         af_add(&somma, node->gradiente, gradiente, false);
         af_release_array(node->gradiente);
