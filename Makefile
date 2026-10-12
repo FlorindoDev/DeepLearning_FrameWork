@@ -6,7 +6,7 @@ LDFLAGS = -L"$(AF_DIR)/lib"					#serve per far trovare i file c al linker
 LDLIBS = -lafcpu							#serve per far trovare la singola libreria(in c ci sono i .lib)
 
 TARGET = frame_work.exe
-OBJ = main.o graph.o activation_function.o loss.o backpropagation.o
+OBJ = main.o graph.o activation_function.o loss.o backpropagation.o MLP.o optimizer.o
 
 #$@  nome dell’obiettivo da generare.
 #$<  nome della prima dipendenza.
@@ -35,6 +35,12 @@ loss.o: loss/loss.c loss/loss.h general.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 backpropagation.o: autograd/backpropagation.c autograd/backpropagation.h general.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+MLP.o: models\MLP\MLP.c models\MLP\MLP.h general.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+optimizer.o: optimizers/optimizer.c optimizers/optimizer.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 cleanAll:

@@ -5,44 +5,9 @@
 
 /*
 ################################################################
-# INIZIALIZZAZIONE DEL GRAFO                                   #
+# INIZIALIZZAZIONE PESI                                        #
 ################################################################
 */
-
-array_node* init_graph(int layers[], int n){
-    
-    array_node* graph = calloc(1, sizeof *graph);
-
-    graph->size = 2 * n + 1;
-    graph->node = calloc((size_t)graph->size, sizeof *graph->node);
-
-    for(int i = 0; i < graph->size; i++){
-        af_array weight = 0;
-        node_type tipo;
-
-        af_array bias = 0;
-        dim_t dims[] = {1, layers[(i/2)]};
-        af_constant(&bias, 0.0, 2, dims, f64);
-
-        if(i == graph->size - 1){
-            tipo = TYPE_INPUT;
-        }else if(i % 2 == 0){
-            tipo = TYPE_WEIGHT;
-            weight = init_weights(layers[i/2], layers[(i/2)-1]);
-            af_release_array(bias);
-        }else{
-            tipo = TYPE_BIAS;
-            weight = bias;
-        }
-
-        graph->node[i] = alloc_node(tipo);
-        
-        init_node(graph->node[i], weight, NULL, NULL, OP_NULL, tipo, NULL, NULL, NULL, NULL);
-        graph->length++;
-    }
-
-    return graph;
-}
 
 af_array init_weights(dim_t righe, dim_t colonne){
 
@@ -52,7 +17,7 @@ af_array init_weights(dim_t righe, dim_t colonne){
 
    
     af_randn(&casuali, 2, dims, f64);
-    af_constant(&scala, sqrt(2.0 / (double)colonne), 1, scalare, f64);
+    af_constant(&scala, sqrt(2.0 / (double)righe), 1, scalare, f64);
     af_mul(&pesi, casuali, scala, true);
     
 
@@ -208,10 +173,7 @@ node* add_softmax(node* input_node,op op){
 
 node* add_loss(node* input_node,af_array target,af_array (*fun)(af_array,af_array),op op){
 
-    af_array A = 0;
-    af_copy_array(&A, input_node->valore);
-
-    A = fun(A,target);
+    af_array A = fun(input_node->valore,target);
 
     node* node = alloc_node(TYPE_OP);
     init_node(node,A,NULL,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);

@@ -109,6 +109,7 @@ void activation_fun_gradient(node* pre_node, node* node,double (*fun)(double)){
     af_mul(&gradiente_relu, derivative_relu, gradiente_h, false);
     af_release_array(derivative_relu);
 
+    if(node->temp != NULL) af_release_array(node->temp);
     node->temp = gradiente_h;
     _accumulate_gradient(node, gradiente_relu);
 
@@ -141,13 +142,9 @@ void weight_gradient(node* pre_node, node* cur_node){
     af_get_type(&tipo, pre_node->gradiente);
     af_cast(&valore_input, input->valore, tipo);
 
-    if(input->tipo == TYPE_INPUT){
-        // Y = W * X: grad(W) = grad(Y) * X^T.
-        af_matmul(&gradiente, pre_node->gradiente, valore_input, AF_MAT_NONE, AF_MAT_TRANS);
-    }else{
-        // Y = X * W: grad(W) =  H^T * grad(Y) .
-        af_matmul(&gradiente, valore_input, pre_node->gradiente, AF_MAT_TRANS, AF_MAT_NONE);
-    }
+    // Y = X * W: grad(W) =  H^T * grad(Y) .
+    af_matmul(&gradiente, valore_input, pre_node->gradiente, AF_MAT_TRANS, AF_MAT_NONE);
+    
     af_release_array(valore_input);
     _accumulate_gradient(cur_node, gradiente);
 }
@@ -184,6 +181,7 @@ static void _accumulate_gradient(node* node, af_array gradiente){
         af_release_array(gradiente);
         node->gradiente = somma;
     }else{
+        if(node->gradiente != NULL) af_release_array(node->gradiente);
         node->gradiente = gradiente;
     }
 }

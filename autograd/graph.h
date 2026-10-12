@@ -41,7 +41,6 @@
         int length;
     } array_node;
 
-    array_node* init_graph(int layers[], int n);
     // init He
     af_array init_weights(dim_t righe, dim_t colonne);
 
@@ -54,7 +53,7 @@
     node* create_val(af_array,node_type);
     void add_child(node*,node*);
 
-    node* add_op(node*,node*,af_array,op);
+    node* add_op(node* left_node,node* right_node,af_array target,op);
     node* add_matmul(node*,node*,op);
     node* add_sum(node*,node*,op);
     node* add_activation(node*,double (*fun)(double),op);
