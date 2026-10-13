@@ -6,6 +6,8 @@ ifeq ($(OS),Windows_NT)
 else
 	AF_DEFAULT_DIR = /opt/arrayfire
 	LDLIBS_EXTRA = -lm
+	AF_RUNTIME_LIB_DIR = $(if $(filter /%,$(firstword $(AF_LIB_DIR))),$(AF_LIB_DIR),$(CURDIR)/$(AF_LIB_DIR))
+	LDFLAGS_EXTRA = -Wl,--disable-new-dtags,-rpath,"$(AF_RUNTIME_LIB_DIR)"
 endif
 
 # AF_DIR: argomento di make o variabile ambiente; altrimenti AF_PATH o percorso standard.
@@ -14,7 +16,7 @@ AF_LIB_DIR ?= $(if $(wildcard $(AF_DIR)/lib64/libafcpu.so*),$(AF_DIR)/lib64,$(AF
 
 
 CPPFLAGS = -I"$(AF_DIR)/include"     			#serve per trovare i file include
-LDFLAGS = -L"$(AF_LIB_DIR)"						#serve per far trovare i file c al linker
+LDFLAGS = -L"$(AF_LIB_DIR)" $(LDFLAGS_EXTRA)	#percorsi delle librerie per linking e runtime
 LDLIBS = -lafcpu $(LDLIBS_EXTRA)				#serve per far trovare la singola libreria(in c ci sono i .lib)
 
 TARGET = frame_work

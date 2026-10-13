@@ -69,14 +69,14 @@ make setup-linux
 sudo bash deps/downloads/ArrayFire-v3.10.0-Linux-x64.sh --include-subdir --prefix=/opt
 ```
 
-L'installazione così configurata usa `/opt/arrayfire`. Imposta i percorsi delle librerie per il terminale corrente, poi compila e avvia:
+L'installazione così configurata usa `/opt/arrayfire`, il percorso predefinito del Makefile. Compila e avvia:
 
 ```bash
-export AF_PATH=/opt/arrayfire
-export LD_LIBRARY_PATH="/opt/arrayfire/lib64:/opt/arrayfire/lib:$LD_LIBRARY_PATH"
 make build
 ./frame_work
 ```
+
+Su Linux il Makefile incorpora nell'eseguibile un `RPATH` assoluto verso `AF_LIB_DIR`, usato anche per le dipendenze indirette nella stessa cartella. Non serve impostare `LD_LIBRARY_PATH` per quella cartella. Se hai già compilato il programma con il vecchio Makefile, esegui `make rebuild` per aggiornare l'eseguibile.
 
 Per eventuali dipendenze di sistema aggiuntive, consulta le [istruzioni di installazione ArrayFire](https://arrayfire.org/docs/installing.htm).
 
@@ -102,7 +102,7 @@ make build AF_DIR="/home/mario/arrayfire"
 make build AF_DIR="/home/mario/arrayfire" AF_LIB_DIR="/home/mario/arrayfire/lib64"
 ```
 
-`AF_DIR` e `AF_LIB_DIR` servono alla compilazione. Per eseguire il programma, le librerie devono essere raggiungibili anche tramite `PATH` su Windows o `LD_LIBRARY_PATH` su Linux.
+Su Windows le DLL devono essere raggiungibili anche tramite `PATH`. Su Linux `AF_LIB_DIR` viene incorporata nell'eseguibile come percorso di ricerca delle librerie a runtime; se sposti l'installazione di ArrayFire, ricompila con `make rebuild AF_DIR="/nuovo/percorso/arrayfire"` (e aggiorna `AF_LIB_DIR` se l'avevi impostata esplicitamente).
 
 ### Dataset MNIST
 
