@@ -9,7 +9,11 @@
 ################################################################
 */
 
-enum { PIXEL = 784, CLASSI = 10, NASCOSTI = 64, BATCH = 64, EPOCHE = 20 };
+enum {
+    PIXEL = 784, CLASSI = 10,
+    NASCOSTI_1 = 512, NASCOSTI_2 = 256, NASCOSTI_3 = 128, NASCOSTI_4 = 64,
+    BATCH = 128, EPOCHE = 30
+};
 
 typedef struct {
     unsigned char* immagini;
@@ -65,17 +69,20 @@ static double scalare(af_array matrice)
 ################################################################
 */
 
-enum { MAX_NODI = 16, LARGHEZZA = 200, PASSO = 4 };
+enum { PASSO = 4 };
 
 // Disegna i collegamenti gia' presenti: non costruisce nodi e non cerca foglie.
 static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
                            const int figli[][2], int* entranti, char etichette[][40])
 {
     // Calcoliamo ordine topologico e livelli dai collegamenti scoperti.
-    int rimanenti[MAX_NODI], ordine[MAX_NODI];
+    int rimanenti[numero_nodi], ordine[numero_nodi];
     af_err err = AF_SUCCESS;
-    for (int i = 0; i < numero_nodi; ++i) entranti[i] = 0;
-    int livello[MAX_NODI] = {0}, ordinati = 0, larghezza = 95;
+    int livello[numero_nodi], ordinati = 0, larghezza = 95;
+    for (int i = 0; i < numero_nodi; ++i) {
+        entranti[i] = 0;
+        livello[i] = 0;
+    }
     for (int i = 0; i < numero_nodi; ++i)
         for (int j = 0; j < 2; ++j)
             if (figli[i][j] >= 0) ++entranti[figli[i][j]];
@@ -83,7 +90,8 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
         rimanenti[i] = entranti[i];
         if (entranti[i] == 0) {
             ordine[ordinati++] = i;
-            if (18 + (ordinati - 1) * 24 + 20 > larghezza) larghezza = LARGHEZZA;
+            int necessaria = 18 + (ordinati - 1) * 24 + 20;
+            if (necessaria > larghezza) larghezza = necessaria;
         }
     }
     for (int p = 0; p < ordinati; ++p) {
@@ -101,7 +109,7 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
     }
 
     // Ogni operazione viene posizionata sotto i suoi operandi.
-    int colonne[MAX_NODI], righe[MAX_NODI], lunghezze[MAX_NODI], ultima_riga = 0;
+    int colonne[numero_nodi], righe[numero_nodi], lunghezze[numero_nodi], ultima_riga = 0;
     for (int p = 0; p < ordinati; ++p) {
         int i = ordine[p];
         if (entranti[i] == 0) {
@@ -149,7 +157,7 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
     }
 
     // La griglia ASCII contiene solo i nodi e gli archi trovati dalla visita.
-    char disegno[MAX_NODI * PASSO][LARGHEZZA + 1];
+    char disegno[ultima_riga + 1][larghezza + 1];
     for (int y = 0; y <= ultima_riga; ++y) {
         for (int x = 0; x < larghezza; ++x) disegno[y][x] = ' ';
         disegno[y][larghezza] = '\0';
@@ -223,22 +231,21 @@ static af_err stampa_grafo(int numero_grafo, node* const* nodi, int numero_nodi,
 
 static void stampa_modello(int numero_grafo, array_node* graph, node* const* ramo, int numero_ramo)
 {
-    node* nodi[MAX_NODI];
-    int numero_nodi = graph->length;
-    verifica(numero_nodi <= MAX_NODI, "Troppi nodi per il disegno del grafo.");
-    for (int i = 0; i < graph->length; ++i) nodi[i] = graph->node[i];
+    int numero_nodi = graph->length + numero_ramo;
     for (node* corrente = graph->node[graph->length - 1]->left;
-         corrente != NULL; corrente = corrente->left) {
-        verifica(numero_nodi < MAX_NODI, "Troppi nodi per il disegno del grafo.");
-        nodi[numero_nodi++] = corrente;
-    }
-    for (int i = 0; i < numero_ramo; ++i) {
-        verifica(numero_nodi < MAX_NODI, "Troppi nodi per il disegno del grafo.");
-        nodi[numero_nodi++] = ramo[i];
-    }
+         corrente != NULL; corrente = corrente->left)
+        ++numero_nodi;
 
-    int figli[MAX_NODI][2], entranti[MAX_NODI];
-    char etichette[MAX_NODI][40];
+    node* nodi[numero_nodi];
+    int prossimo = 0;
+    for (int i = 0; i < graph->length; ++i) nodi[prossimo++] = graph->node[i];
+    for (node* corrente = graph->node[graph->length - 1]->left;
+         corrente != NULL; corrente = corrente->left)
+        nodi[prossimo++] = corrente;
+    for (int i = 0; i < numero_ramo; ++i) nodi[prossimo++] = ramo[i];
+
+    int figli[numero_nodi][2], entranti[numero_nodi];
+    char etichette[numero_nodi][40];
     for (int i = 0; i < numero_nodi; ++i) {
         node* collegati[] = {nodi[i]->left, nodi[i]->right};
         for (int j = 0; j < 2; ++j) {
@@ -648,15 +655,23 @@ static void allena_mnist(void)
     for (int i = 0; i < training.numero; ++i) ordine[i] = i;
     srand(42);
     verifica(af_set_seed(42) == AF_SUCCESS, "Seed ArrayFire.");
-    int dimensioni[] = {PIXEL, NASCOSTI, CLASSI};
+    int dimensioni[] = {PIXEL, NASCOSTI_1, NASCOSTI_2, NASCOSTI_3, NASCOSTI_4, CLASSI};
+    int numero_livelli = (int)(sizeof dimensioni / sizeof dimensioni[0]) - 1;
     // init_graph legge anche layers[-1], cioe la dimensione dell'input.
-    array_node* graph = init_graph(&dimensioni[1], 2, NULL);
-    verifica(graph != NULL && graph->length == 5, "Modello MNIST non valido.");
-    verifica_forma(graph->node[0]->valore, PIXEL, NASCOSTI);
-    verifica_forma(graph->node[1]->valore, 1, NASCOSTI);
-    verifica_forma(graph->node[2]->valore, NASCOSTI, CLASSI);
-    verifica_forma(graph->node[3]->valore, 1, CLASSI);
-    printf("Rete %d -> %d -> %d; batch %d; epoche %d.\n", PIXEL, NASCOSTI, CLASSI, BATCH, EPOCHE);
+    array_node* graph = init_graph(&dimensioni[1], numero_livelli, NULL);
+    verifica(graph != NULL && graph->length == 2 * numero_livelli + 1,
+             "Modello MNIST non valido.");
+    for (int i = 0; i < numero_livelli; ++i) {
+        verifica(graph->node[2 * i]->tipo == TYPE_WEIGHT &&
+                 graph->node[2 * i + 1]->tipo == TYPE_BIAS,
+                 "Tipi dei parametri MNIST non validi.");
+        verifica_forma(graph->node[2 * i]->valore, dimensioni[i], dimensioni[i + 1]);
+        verifica_forma(graph->node[2 * i + 1]->valore, 1, dimensioni[i + 1]);
+    }
+    verifica(graph->node[graph->length - 1]->tipo == TYPE_INPUT, "Nodo input MNIST non valido.");
+    printf("Rete %d", dimensioni[0]);
+    for (int i = 1; i <= numero_livelli; ++i) printf(" -> %d", dimensioni[i]);
+    printf("; batch %d; epoche %d.\n", BATCH, EPOCHE);
     puts("Input: una riga per immagine, pixel / 255; target one-hot.");
     printf("Accuratezza iniziale sul test set: %.2f%%.\n", valuta_mnist(graph, &test, 0));
 
@@ -675,10 +690,6 @@ static void allena_mnist(void)
             prepara_batch(&training, ordine, inizio, numero, &input, &target);
             imposta_input_mnist(graph, input);
             train(CROSS_ENTROPY, target, graph, RELU);
-            if (epoca == 0 && inizio == 0) {
-                puts("\nStruttura del modello MNIST al primo batch di training:");
-                stampa_modello(3, graph, NULL, 0);
-            }
 
             // train non ha ancora un return: la loss resta accessibile nel grafo.
             node* trovate[1];

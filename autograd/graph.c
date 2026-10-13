@@ -145,12 +145,9 @@ node* add_sum(node* left_node,node* right_node,op op){
     return node;
 }
 
-node* add_activation(node* input_node, double (*fun)(double),op op){
+node* add_activation(node* input_node, af_array (*fun)(af_array),op op){
 
-    af_array A = 0;
-    af_copy_array(&A, input_node->valore);
-
-    A = matrix_map(A,fun);
+    af_array A = fun(input_node->valore);
 
     node* node = alloc_node(TYPE_OP);
     init_node(node,A,NULL,NULL,op,TYPE_OP,NULL,NULL,NULL,NULL);

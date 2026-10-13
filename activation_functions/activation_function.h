@@ -2,9 +2,10 @@
     #define ACTIVATION_FUNCTION_HEADER 0
     #include "../general.h"
 
-    double relu(double);
+    // L'input resta valido; il chiamante rilascia il risultato.
+    af_array relu(af_array input);
     // In zero si usa la convenzione derivata = 0.
-    double relu_derivative(double val);
+    af_array relu_derivative(af_array input);
 
     /*
         dim = 0: normalizza ogni colonna; dim = 1: ogni riga.

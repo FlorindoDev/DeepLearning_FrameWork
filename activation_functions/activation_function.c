@@ -6,13 +6,28 @@
 ################################################################
 */
 
-double relu(double val){
-    return val > 0 ? val : 0;
+af_array relu(af_array input){
+    af_array zero = 0, risultato = 0;
+    dim_t dims[] = {1};
 
+    af_constant(&zero, 0.0, 1, dims, f64);
+    af_maxof(&risultato, input, zero, true);
+    af_release_array(zero);
+
+    return risultato;
 }
 
-double relu_derivative(double val){
-    return val > 0 ? 1.0 : 0.0;
+af_array relu_derivative(af_array input){
+    af_array zero = 0, maschera = 0, risultato = 0;
+    dim_t dims[] = {1};
+
+    af_constant(&zero, 0.0, 1, dims, f64);      // matrice di zeri
+    af_gt(&maschera, input, zero, true);        //crea una maschera di 1 e 0
+    af_cast(&risultato, maschera, f64);         //converte in f64
+    af_release_array(zero);
+    af_release_array(maschera);
+
+    return risultato;
 }
 
 /*

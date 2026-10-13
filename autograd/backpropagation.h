@@ -10,7 +10,7 @@
 
     void matmul_gradient(node* pre_node, node* node);
     void sum_gradient(node* pre_node, node* node);
-    void activation_fun_gradient(node* pre_node, node* node,double (*fun)(double));
+    void activation_fun_gradient(node* pre_node, node* node,af_array (*fun)(af_array));
     void softmax_gradient(node* pre_node, node* node);
     void cross_entropy_gradient(node* node, af_array targets);
 

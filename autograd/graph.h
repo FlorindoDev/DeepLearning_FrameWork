@@ -56,7 +56,7 @@
     node* add_op(node* left_node,node* right_node,af_array target,op);
     node* add_matmul(node*,node*,op);
     node* add_sum(node*,node*,op);
-    node* add_activation(node*,double (*fun)(double),op);
+    node* add_activation(node*,af_array (*fun)(af_array),op);
     node* add_softmax(node*,op);
     node* add_loss(node*,af_array,af_array (*fun)(af_array,af_array),op);
 

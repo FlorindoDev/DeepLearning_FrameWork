@@ -93,17 +93,15 @@ void sum_gradient(node* pre_node, node* node){
 
 }
 
-void activation_fun_gradient(node* pre_node, node* node,double (*fun)(double)){
+void activation_fun_gradient(node* pre_node, node* node,af_array (*fun)(af_array)){
 
-    af_array valore = 0;
     af_array gradiente_h = 0;
     af_array gradiente_relu = 0;
 
     struct node* input = _other_father(pre_node, node);
 
-    af_copy_array(&valore,  node->father_left == NULL ? node->father_right->valore : node->father_left->valore);
-
-    af_array derivative_relu = matrix_map(valore,fun);
+    af_array valore = node->father_left == NULL ? node->father_right->valore : node->father_left->valore;
+    af_array derivative_relu = fun(valore);
 
     af_matmul(&gradiente_h,pre_node->gradiente, input->valore,AF_MAT_NONE, AF_MAT_TRANS);
     af_mul(&gradiente_relu, derivative_relu, gradiente_h, false);
